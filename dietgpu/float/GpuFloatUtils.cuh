@@ -58,6 +58,14 @@ struct __align__(16) GpuFloatHeader {
     checksum = c;
   }
 
+  __host__ __device__ uint32_t getFirstCompSegmentBytes() const {
+    return firstCompSegmentBytes;
+  }
+
+  __host__ __device__ void setFirstCompSegmentBytes(uint32_t b) {
+    firstCompSegmentBytes = b;
+  }
+
   // (16: magic)(16: version)
   uint32_t magicAndVersion;
 
@@ -69,9 +77,17 @@ struct __align__(16) GpuFloatHeader {
 
   // Optional checksum computed on the input data
   uint32_t checksum;
+
+  // Number of bytes in the first segment of compressed data (for Float64 where
+  // there are two different segments of compressed data)
+  uint32_t firstCompSegmentBytes;
+
+  // For 16-byte alignment purposes;
+  uint32_t unusedOne;
+  uint64_t unusedTwo;
 };
 
-static_assert(sizeof(GpuFloatHeader) == 16, "");
+static_assert(sizeof(GpuFloatHeader) == 32, "");
 
 struct __align__(16) uint32x4 {
   uint32_t x[4];
@@ -103,19 +119,25 @@ struct FloatTypeInfo<FloatType::kFloat16> {
   using CompT = uint8_t;
   using NonCompT = uint8_t;
 
+  using NonCompSplit1T = uint8_t;
+  using NonCompSplit2T = uint8_t; // UNUSED
+
   // 16 byte vector type
   using VecT = uint16x8;
   using CompVecT = uint8x8;
   using NonCompVecT = uint8x8;
 
-  static __device__ void split(WordT in, CompT& comp, NonCompT& nonComp) {
+  using NonCompVecSplit1T = uint8x8;
+  using NonCompVecSplit2T = uint8x8; // UNUSED
+
+  static __device__ void split(WordT in, CompT* comp, NonCompT& nonComp) {
     // don't bother extracting the specific exponent
-    comp = in >> 8;
+    *comp = in >> 8;
     nonComp = in & 0xff;
   }
 
-  static __device__ WordT join(CompT comp, NonCompT nonComp) {
-    return WordT(comp) * WordT(256) + WordT(nonComp);
+  static __device__ WordT join(CompT* comp, NonCompT nonComp) {
+    return WordT(*comp) * WordT(256) + WordT(nonComp);
   }
 
   // How many bytes of data are in the non-compressed portion past the float
@@ -133,21 +155,27 @@ struct FloatTypeInfo<FloatType::kBFloat16> {
   using CompT = uint8_t;
   using NonCompT = uint8_t;
 
+  using NonCompSplit1T = uint8_t;
+  using NonCompSplit2T = uint8_t; // UNUSED
+
   // 16 byte vector type
   using VecT = uint16x8;
   using CompVecT = uint8x8;
   using NonCompVecT = uint8x8;
 
-  static __device__ void split(WordT in, CompT& comp, NonCompT& nonComp) {
+  using NonCompVecSplit1T = uint8x8;
+  using NonCompVecSplit2T = uint8x8; // UNUSED
+
+  static __device__ void split(WordT in, CompT* comp, NonCompT& nonComp) {
     uint32_t v = uint32_t(in) * 65536U + uint32_t(in);
 
     v = rotateLeft(v, 1);
-    comp = v >> 24;
+    *comp = v >> 24;
     nonComp = v & 0xff;
   }
 
-  static __device__ WordT join(CompT comp, NonCompT nonComp) {
-    uint32_t lo = uint32_t(comp) * 256U + uint32_t(nonComp);
+  static __device__ WordT join(CompT *comp, NonCompT nonComp) {
+    uint32_t lo = uint32_t(*comp) * 256U + uint32_t(nonComp);
     lo <<= 16;
     uint32_t hi = nonComp;
 
@@ -173,19 +201,25 @@ struct FloatTypeInfo<FloatType::kFloat32> {
   using CompT = uint8_t;
   using NonCompT = uint32_t;
 
+  using NonCompSplit1T = uint16_t;
+  using NonCompSplit2T = uint8_t;
+
   // 16 byte vector type
   using VecT = uint32x4;
   using CompVecT = uint8x4;
   using NonCompVecT = uint32x4;
 
-  static __device__ void split(WordT in, CompT& comp, NonCompT& nonComp) {
+  using NonCompVecSplit1T = uint16x4;
+  using NonCompVecSplit2T = uint8x4;
+
+  static __device__ void split(WordT in, CompT* comp, NonCompT& nonComp) {
     auto v = rotateLeft(in, 1);
-    comp = v >> 24;
+    *comp = v >> 24;
     nonComp = v & 0xffffffU;
   }
 
-  static __device__ WordT join(CompT comp, NonCompT nonComp) {
-    uint32_t v = (uint32_t(comp) * 16777216U) + uint32_t(nonComp);
+  static __device__ WordT join(CompT* comp, NonCompT nonComp) {
+    uint32_t v = (uint32_t(*comp) * 16777216U) + uint32_t(nonComp);
     return rotateRight(v, 1);
   }
 
@@ -203,6 +237,50 @@ struct FloatTypeInfo<FloatType::kFloat32> {
   }
 };
 
+template <>
+struct FloatTypeInfo<FloatType::kFloat64> {
+  using WordT = uint64_t;
+  using CompT = uint8_t;
+  using NonCompT = uint64_t;
+
+  using NonCompSplit1T = uint32_t;
+  using NonCompSplit2T = uint16_t;
+
+  // 16 byte vector type
+  using VecT = uint32x2;
+  using CompVecT = uint8x2;
+  using NonCompVecT = uint64x2;
+
+  using NonCompVecSplit1T = uint32x2;
+  using NonCompVecSplit2T = uint16x2;
+
+  static __device__ void split(WordT in, CompT* comp, NonCompT& nonComp) {
+    auto v = rotateLeft(in, 1);
+    comp[0] = v >> 56;
+    comp[1] = (v >> 48) & 0xffU;
+
+    nonComp = v & 0xffffffffffffU;
+  }
+
+  static __device__ WordT join(CompT* comp, NonCompT nonComp) {
+    uint64_t v = (uint64_t(comp[0]) * 0xffffffffffffffU + uint64_t(comp[1]) * 0xffffffffffffU + 
+                  uint64_t(nonComp));
+    return rotateRight(v, 1);
+  }
+
+  // How many bytes of data are in the non-compressed portion past the float
+  // header?
+  static __host__ __device__ uint32_t getUncompDataSize(uint32_t size) {
+    // The size of the uncompressed data is always a multiple of 16 bytes, to
+    // guarantee alignment for proceeding data segments
+    // We store the low order 4 bytes first, then the high order 2 uncompressed
+    // bytes afterwards.
+    // Both sections should be 16 byte aligned
+    return 4 * roundUp(size, 4) + // low order 4 bytes
+        roundUp(size, 8);         // high order 2 bytes, starting at an aligned address
+  }
+}
+
 inline size_t getWordSizeFromFloatType(FloatType ft) {
   switch (ft) {
     case FloatType::kFloat16:
@@ -210,10 +288,20 @@ inline size_t getWordSizeFromFloatType(FloatType ft) {
       return sizeof(uint16_t);
     case FloatType::kFloat32:
       return sizeof(uint32_t);
+    case FloatType::kFloat64:
+      return sizeof(uint64_t);
     default:
       CHECK(false);
       return 0;
   }
 }
+
+inline size_t getNumCompSegmentsFromFloatType(FloatType ft) {
+  return (ft == FloatType::kFloat64) ? 2 : 1;
+}
+
+inline bool getIfNonCompSplitFromFloatType(FloatType ft) {
+  return ft == FloatType::kFloat32 || ft == FloatType::kFloat64;
+} 
 
 } // namespace dietgpu

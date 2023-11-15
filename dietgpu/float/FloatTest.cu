@@ -106,6 +106,15 @@ struct GenerateFloat<FloatType::kFloat32> {
   }
 };
 
+template <>
+struct GenerateFloat<FloatType::kFloat64> {
+  static FloatTypeInfo<FloatType::kFloat64>::WordT gen(double v) {
+    FloatTypeInfo<FloatType::kFloat64>::WordT out;
+    std::memcpy(&out, &v, sizeof(double));
+    return out;
+  }
+};
+
 template <FloatType FT>
 std::vector<typename FloatTypeInfo<FT>::WordT> generateFloats(int num) {
   std::mt19937 gen(10 + num);
@@ -301,7 +310,7 @@ TEST(FloatTest, BatchSize1) {
   auto res = makeStackMemory();
 
   for (auto ft :
-       {FloatType::kFloat16, FloatType::kBFloat16, FloatType::kFloat32}) {
+       {FloatType::kFloat16, FloatType::kBFloat16, FloatType::kFloat32, FloatType::kFloat64}) {
     for (auto probBits : {9, 10}) {
       runBatchPointerTest(res, ft, probBits, {1});
       runBatchPointerTest(res, ft, probBits, {13, 1});
