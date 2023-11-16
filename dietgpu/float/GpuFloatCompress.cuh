@@ -26,103 +26,111 @@
 namespace dietgpu {
 
 template <FloatType FT>
-static __device__ void update_comp_and_hist(
-    const typename FloatTypeInfo<FT>::WordT* inWord,
-    typename FloatTypeInfo<FT>::CompT* compOuts,
-    typename FloatTypeInfo<FT>::NonCompSplit1T& nonComp1Out,
-    typename FloatTypeInfo<FT>::NonCompSplit2T& nonComp2Out, // Only used for F32 and F64
-    uint32_t** warpHistograms) {
-  using FTI = FloatTypeInfo<FT>;
-  using CompT = typename FTI::CompT;
-  using NonCompT = typename FTI::NonCompT;
-  using WordT = typename FTI::WordT;
-
-  NonCompT nonComp;
-  FTI::split(inWord, compOuts, nonComp);
-
-  nonComp1Out = nonComp;
-
-  atomicAdd(&warpHistograms[0][compOuts[0]], 1);
-}
-
-static __device__ void update_comp_and_hist<FloatType::kFloat32>(
-    const typename FloatTypeInfo<FT>::WordT* inWord,
-    typename FloatTypeInfo<FT>::CompT* compOuts,
-    typename FloatTypeInfo<FT>::NonCompSplit1T& nonComp1Out,
-    typename FloatTypeInfo<FT>::NonCompSplit2T& nonComp2Out, // Only used for F32 and F64
-    uint32_t** warpHistograms) {
-  using FTI = FloatTypeInfo<FT>;
-  using CompT = typename FTI::CompT;
-  using NonCompT = typename FTI::NonCompT;
-  using WordT = typename FTI::WordT;
-
-  NonCompT nonComp;
-  FTI::split(inWord, compOuts, nonComp);
-
-  nonComp1Out = nonComp & 0xffffU;
-  nonComp2Out = nonComp >> 16;
-
-  atomicAdd(&warpHistograms[0][compOuts[0]], 1);
-}
-
-static __device__ void update_comp_and_hist<FloatType::kFloat64>(
-    const typename FloatTypeInfo<FT>::WordT* inWord,
-    typename FloatTypeInfo<FT>::CompT* compOuts,
-    typename FloatTypeInfo<FT>::NonCompSplit1T& nonComp1Out,
-    typename FloatTypeInfo<FT>::NonCompSplit2T& nonComp2Out, // Only used for F32 and F64
-    uint32_t** warpHistograms) {
-  using FTI = FloatTypeInfo<FT>;
-  using CompT = typename FTI::CompT;
-  using NonCompT = typename FTI::NonCompT;
-  using WordT = typename FTI::WordT;
-
-  NonCompT nonComp;
-  FTI::split(inWord, compOuts, nonComp);
-
-  nonComp2Out[i] = nonComp & 0xffffffffU;
-  nonComp1Out[i] = nonComp >> 32;
-
-  atomicAdd(&warpHistograms[0][compOuts[0]], 1);
-  atomicAdd(&warpHistograms[1][compOuts[1]], 1);
-}
-
-template <FloatType FT, int Threads>
-struct SplitFloatNonAligned {
-  static __device__ void split(
-      const typename FloatTypeInfo<FT>::WordT* in,
-      uint32_t size,
-      typename FloatTypeInfo<FT>::CompT* compOut,
-      typename FloatTypeInfo<FT>::NonCompT* nonCompOut,
+struct UpdateCompAndHist {
+  static __device__ void update(
+      const typename FloatTypeInfo<FT>::WordT inWord,
+      typename FloatTypeInfo<FT>::CompT* compOuts,
+      typename FloatTypeInfo<FT>::NonCompSplit1T& nonComp1Out,
+      typename FloatTypeInfo<FT>::NonCompSplit2T& nonComp2Out, // Only used for F32 and F64
       uint32_t** warpHistograms) {
     using FTI = FloatTypeInfo<FT>;
     using CompT = typename FTI::CompT;
     using NonCompT = typename FTI::NonCompT;
-    using NonCompSplit1T = typename FTI::NonCompSplit1T;
-    using NonCompSplit2T = typename FTI::NonCompSplit2T;
+    using WordT = typename FTI::WordT;
 
-    NonCompSplit1T* nonComp1Out = (NonCompSplit1T*) nonCompOut;
-    NonCompSplit2T* nonComp2Out = (NonCompSplit2T*) nonCompOut;
-    if (getIfNonCompSplitFromFloatType(FT))
-      nonComp2Out = (NonCompSplit2T*) (nonCompOut + roundup(size, 16 / sizeof(NonCompSplit1T)));
+    NonCompT nonComp;
+    FTI::split(inWord, compOuts, nonComp);
 
-    for (uint32_t i = blockIdx.x * blockDim.x + threadIdx.x; i < size;
-         i += gridDim.x * blockDim.x) {
-      CompT comps[MAX_NUM_COMP_OUTS];
-      NonCompSplit1T nonComp1;
-      NonCompSplit2T nonComp2;
+    nonComp1Out = nonComp;
 
-      update_comp_and_hist<FT>(in[i], comps, nonComp1, nonComp2, warpHistograms);
-      nonComp1Out[i] = nonComp1;
-      if (getIfNonCompSplitFromFloatType(FT))
-        nonComp2Out[i] = nonComp2;
-      
-#pragma unroll
-      for (int k = 0; k < getNumCompSegmentsFromFloatType(FT); k++) {
-        compOut[k*roundup(size, 16 / sizeof(CompT)) + i] = comps[k];
-      }
-    }
+    atomicAdd(&warpHistograms[0][compOuts[0]], 1);
   }
 };
+
+template<>
+struct UpdateCompAndHist<FloatType::kFloat32> {
+  static __device__ void update(
+      const typename FloatTypeInfo<FloatType::kFloat32>::WordT inWord,
+      typename FloatTypeInfo<FloatType::kFloat32>::CompT* compOuts,
+      typename FloatTypeInfo<FloatType::kFloat32>::NonCompSplit1T& nonComp1Out,
+      typename FloatTypeInfo<FloatType::kFloat32>::NonCompSplit2T& nonComp2Out, // Only used for F32 and F64
+      uint32_t** warpHistograms) {
+    using FTI = FloatTypeInfo<FloatType::kFloat32>;
+    using CompT = typename FTI::CompT;
+    using NonCompT = typename FTI::NonCompT;
+    using WordT = typename FTI::WordT;
+
+    NonCompT nonComp;
+    FTI::split(inWord, compOuts, nonComp);
+
+    nonComp1Out = nonComp & 0xffffU;
+    nonComp2Out = nonComp >> 16;
+
+    atomicAdd(&warpHistograms[0][compOuts[0]], 1);
+  }
+};
+
+template<>
+struct UpdateCompAndHist<FloatType::kFloat64> {
+  static __device__ void update(
+      const typename FloatTypeInfo<FloatType::kFloat64>::WordT inWord,
+      typename FloatTypeInfo<FloatType::kFloat64>::CompT* compOuts,
+      typename FloatTypeInfo<FloatType::kFloat64>::NonCompSplit1T& nonComp1Out,
+      typename FloatTypeInfo<FloatType::kFloat64>::NonCompSplit2T& nonComp2Out, // Only used for F32 and F64
+      uint32_t** warpHistograms) {
+    using FTI = FloatTypeInfo<FloatType::kFloat64>;
+    using CompT = typename FTI::CompT;
+    using NonCompT = typename FTI::NonCompT;
+    using WordT = typename FTI::WordT;
+
+    NonCompT nonComp;
+    FTI::split(inWord, compOuts, nonComp);
+
+    nonComp2Out = nonComp & 0xffffffffU;
+    nonComp1Out = nonComp >> 32;
+
+    atomicAdd(&warpHistograms[0][compOuts[0]], 1);
+    atomicAdd(&warpHistograms[1][compOuts[1]], 1);
+  }
+};
+
+  template <FloatType FT, int Threads>
+  struct SplitFloatNonAligned {
+    static __device__ void split(
+        const typename FloatTypeInfo<FT>::WordT* in,
+        uint32_t size,
+        typename FloatTypeInfo<FT>::CompT* compOut,
+        typename FloatTypeInfo<FT>::NonCompT* nonCompOut,
+        uint32_t** warpHistograms) {
+      using FTI = FloatTypeInfo<FT>;
+      using CompT = typename FTI::CompT;
+      using NonCompT = typename FTI::NonCompT;
+      using NonCompSplit1T = typename FTI::NonCompSplit1T;
+      using NonCompSplit2T = typename FTI::NonCompSplit2T;
+
+      NonCompSplit1T* nonComp1Out = (NonCompSplit1T*) nonCompOut;
+      NonCompSplit2T* nonComp2Out = (NonCompSplit2T*) nonCompOut;
+      if (FTI::getIfNonCompSplit())
+        nonComp2Out = (NonCompSplit2T*) (nonCompOut + roundUp(size, 16 / sizeof(NonCompSplit1T)));
+
+      for (uint32_t i = blockIdx.x * blockDim.x + threadIdx.x; i < size;
+          i += gridDim.x * blockDim.x) {
+        CompT comps[MAX_NUM_COMP_OUTS];
+        NonCompSplit1T nonComp1;
+        NonCompSplit2T nonComp2;
+
+        UpdateCompAndHist<FT>::update(in[i], comps, nonComp1, nonComp2, warpHistograms);
+        nonComp1Out[i] = nonComp1;
+        if (FTI::getIfNonCompSplit())
+          nonComp2Out[i] = nonComp2;
+        
+  #pragma unroll
+        for (int k = 0; k < FTI::getNumCompSegments(); k++) {
+          compOut[k*roundUp(size, 16 / sizeof(CompT)) + i] = comps[k];
+        }
+      }
+    }
+  };
 
 template <FloatType FT, int Threads>
 struct SplitFloatAligned16 {
@@ -149,11 +157,11 @@ struct SplitFloatAligned16 {
     constexpr int kOuterUnroll = 2;
     constexpr int kInnerUnroll = sizeof(VecT) / sizeof(WordT);
 
-    constexpr int kNumCompSegments = getNumCompSegmentsFromFloatType(FT);
+    int numCompSegments = FTI::getNumCompSegments();
 
-    NonCompVecSplit1T nonCompOut1 = (NonCompVecSplit1T*)nonCompOut;
-    NonCompVecSplit2T nonCompOut2 = (NonCompVecSplit2T*)nonCompOut;
-    if (getIfNonCompSplitFromFloatType(FT)) {
+    NonCompSplit1T* nonCompOut1 = (NonCompSplit1T*)nonCompOut;
+    NonCompSplit2T* nonCompOut2 = (NonCompSplit2T*)nonCompOut;
+    if (FTI::getIfNonCompSplit()) {
       nonCompOut2 = (NonCompSplit2T*) (nonCompOut + roundUp(size, 16 / sizeof(NonCompSplit1T)));
     }
 
@@ -200,13 +208,13 @@ struct SplitFloatAligned16 {
           NonCompSplit1T nonComp1;
           NonCompSplit2T nonComp2;
 
-          update_comp_and_hist<FT>(v[i].x[j], comps, nonComp1, nonComp2, warpHistograms);
+          UpdateCompAndHist<FT>::update(v[i].x[j], comps, nonComp1, nonComp2, warpHistograms);
           nonCompV1[i].x[j] = nonComp1;
-          if (getIfNonCompSplitFromFloatType(FT))
+          if (FTI::getIfNonCompSplit())
             nonCompV2[i].x[j] = nonComp2;
-#pragma unroll
-          for (int k = 0; k < kNumCompSegments; k++) {
-            compV[k*roundup(size, 16 / sizeof(CompT)) + i].x[j] = comps[k];
+
+          for (int k = 0; k < numCompSegments; k++) {
+            compV[k*roundUp(size, 16 / sizeof(CompT)) + i].x[j] = comps[k];
           }
         }
       }
@@ -215,7 +223,7 @@ struct SplitFloatAligned16 {
       for (uint32_t i = 0; i < kOuterUnroll; ++i) {
         compOutV[i * Threads] = compV[i];
         nonCompOutV1[i * Threads] = nonCompV1[i];
-        if (getIfNonCompSplitFromFloatType(FT))
+        if (FTI::getIfNonCompSplit())
           nonCompOutV2[i * Threads] = nonCompV2[i];
       }
     }
@@ -229,14 +237,13 @@ struct SplitFloatAligned16 {
       NonCompSplit1T nonComp1;
       NonCompSplit2T nonComp2;
 
-      update_comp_and_hist<FT>(in[i], comps, nonComp1, nonComp2, warpHistograms);
+      UpdateCompAndHist<FT>::update(in[i], comps, nonComp1, nonComp2, warpHistograms);
       nonCompOut1[i] = nonComp1;
-      if (getIfNonCompSplitFromFloatType(FT))
+      if (FTI::getIfNonCompSplit())
         nonCompOut2[i] = nonComp2;
 
-#pragma unroll
-      for (int k = 0; k < kNumCompSegments; k++) {
-        compOut[k*roundup(size, 16 / sizeof(CompT)) + i].x[j] = comps[k];
+      for (int k = 0; k < numCompSegments; k++) {
+        compOut[k*roundUp(size, 16 / sizeof(CompT)) + i] = comps[k];
       }
     }
   }
@@ -255,34 +262,38 @@ __global__ void splitFloat(
     uint32_t compOutStride,
     NonCompProvider nonCompProvider,
     uint32_t** __restrict__ histogramsOut) {
+  using FTI = FloatTypeInfo<FT>;
   using WordT = typename FloatTypeInfo<FT>::WordT;
   using CompT = typename FloatTypeInfo<FT>::CompT;
   using NonCompT = typename FloatTypeInfo<FT>::NonCompT;
 
   constexpr int kWarps = Threads / kWarpSize;
-  constexpr int kNumHists = getNumCompSegmentsFromFloatType(FT);
+  int numHists = FTI::getNumCompSegments();
   static_assert(Threads == kNumSymbols, "");
 
   int batch = blockIdx.y;
   int warpId = threadIdx.x / kWarpSize;
 
-  histogramOut += batch * kNumSymbols;
+  for (int k = 0; k < numHists; k++) {
+    histogramsOut[k] += batch * kNumSymbols;
+  }
+
   checksum += batch;
 
   // +1 in order to force very common symbols that could overlap into different
   // banks between different warps
-  __shared__ uint32_t histogram[kWarps][kNumHists][kNumSymbols + 1];
+  __shared__ uint32_t histogram[kWarps][kNumSymbols + 1 + roundUp(kNumSymbols + 1, 4)];
 
 #pragma unroll
   for (int i = 0; i < kWarps; ++i) {
-    for (int k = 0; k < kNumHists) {
-        histogram[i][k][threadIdx.x] = 0;
+    for (int k = 0; k < numHists; k++) {
+        histogram[i][threadIdx.x + k*roundUp(kNumSymbols + 1, 4)] = 0;
     }
   }
 
   __syncthreads();
 
-  uint32_t** warpHistograms = histogram[warpId];
+  uint32_t* warpHistograms[MAX_NUM_COMP_OUTS] = {&histogram[warpId][0], &histogram[warpId][roundUp(kNumSymbols + 1, 4)]};
 
   auto curIn = (const WordT*)inProvider.getBatchStart(batch);
   auto headerOut = (GpuFloatHeader*)nonCompProvider.getBatchStart(batch);
@@ -320,18 +331,16 @@ __global__ void splitFloat(
   // Accumulate warp histogram data and write into the gmem histogram
   __syncthreads();
 
-  uint32_t sums[kNumHists] = histogram[0][threadIdx.x];
+  uint32_t sums[MAX_NUM_COMP_OUTS] = {histogram[0][threadIdx.x], histogram[0][threadIdx.x + roundUp(kNumSymbols + 1, 4)]};
 #pragma unroll
   for (int j = 1; j < kWarps; ++j) {
-#pragma unroll
-    for (int k = 0; k < kNumHists) {
-      sums[k] += histogram[j][k][threadIdx.x];
+    for (int k = 0; k < numHists; k++) {
+      sums[k] += histogram[j][threadIdx.x + k*roundUp(kNumSymbols + 1, 4)];
     }
   }
 
   // The count for the thread's bucket could be 0
-#pragma unroll
-  for (int k = 0; k < kNumHists; k++) {
+  for (int k = 0; k < numHists; k++) {
     if (sums[k]) {
       atomicAdd(&histogramsOut[k][threadIdx.x], sums[k]);
     }
@@ -434,7 +443,7 @@ void floatCompressDevice(
       divUp(maxUncompressedWords, kDefaultBlockSize);
 
   uint32_t batch = blockIdx.x * blockDim.x + threadIdx.x;
-  constexpr int kNumCompSegments = getNumCompSegmentsFromFloatType(config.floatType);
+  int numCompSegments = (config.floatType == FloatType::kFloat64) ? 2 : 1;
   auto curSize = inProvider.getBatchSize(batch);
 
   // Compute checksum on input data (optional)
@@ -450,22 +459,23 @@ void floatCompressDevice(
   // Temporary space for the extracted exponents; all rows must be 16 byte
   // aligned
   uint32_t compRowStride = roundUp(maxSize, sizeof(uint4));
-  auto toComp_dev = res.alloc<uint8_t>(stream, roundUp(numInBatch * compRowStride, 16) * kNumCompSegments);
+  auto toComp_dev = res.alloc<uint8_t>(stream, roundUp(numInBatch * compRowStride, 16) * numCompSegments);
 
-  uint32_t* tempOutSize_dev = res.alloc<uint32_t>(stream, numInBatch);
-  uint32_t* ansOutOffsets = res.alloc<uint32_t>(stream, numInBatch);
-  
+  auto tempOutSize_dev = res.alloc<uint32_t>(stream, numInBatch);
+  auto ansOutOffsets = res.alloc<uint32_t>(stream, numInBatch);
+
+  auto headerOut = (GpuFloatHeader*) outProvider.getBatchStart(batch);
 
   if (batch < numInBatch) {
-    ansOutOffsets[batch] = 0;
+    ansOutOffsets.data()[batch] = 0;
     outSize_dev[batch] = 0;
   }
   // We calculate a histogram of the symbols to be compressed as part of
   // extracting the compressible symbol from the float
-  auto histogram_dev = res.alloc<uint32_t>(stream, kNumCompSegments * roundUp(numInBatch * kNumSymbols, 2));
-  uint32_t* histograms[kNumCompSegments];
-  for (int i = 0; i < kNumCompSegments; i++) {
-    histograms[i] = historgram_dev.data() + roundUp(numInBatch * kNumSymbols, 2) * i;
+  auto histogram_dev = res.alloc<uint32_t>(stream, numCompSegments * roundUp(numInBatch * kNumSymbols, 2));
+  uint32_t* histograms[MAX_NUM_COMP_OUTS];
+  for (int i = 0; i < numCompSegments; i++) {
+    histograms[i] = histogram_dev.data() + roundUp(numInBatch * kNumSymbols, 2) * i;
   }
 
   // zero out buckets before proceeding, as we aggregate with atomic adds
@@ -531,8 +541,8 @@ void floatCompressDevice(
         roundUp(curSize, 16),                                               \
         compRowStride, inProvider);                                         \
                                                                             \
-    auto outProviderANS = FloatANSOutProvider<FT, OutProvider, InProvider(  \
-        outProvider, inProvider, ansOutOffsets);                            \
+    auto outProviderANS = FloatANSOutProvider<FT, OutProvider, InProvider>( \
+        outProvider, inProvider, ansOutOffsets.data());                     \
                                                                             \
     ansEncodeBatchDevice(                                                   \
         res,                                                                \
@@ -542,10 +552,11 @@ void floatCompressDevice(
         histograms[compSegment],                                            \
         maxSize,                                                            \
         outProviderANS,                                                     \
-        tempOutSize_dev,                                                    \
+        tempOutSize_dev.data(),                                             \
         stream);                                                            \
                                                                             \
-    if (batch < numInBatch) outSize_dev[batch] += tempOutSize_dev[batch];    \
+    if (batch < numInBatch) outSize_dev[batch] +=                           \
+                                          tempOutSize_dev.data()[batch];    \
                                                                             \
     if (compSegment == 0)                                                   \
         incOutputSizes<FT><<<divUp(numInBatch, 128), 128, 0, stream>>>(     \
@@ -571,9 +582,8 @@ void floatCompressDevice(
     case FloatType::kFloat64:
       RUN_ANS(FloatType::kFloat64, 0);
       if (batch < numInBatch) 
-        ansOutOffsets[batch] = roundUp(tempOutSize_dev[batch], 16);
-      auto headerOut = (GpuFloatHeader*) outProvider.getBatchStart(batch);
-      headerOut.setFirstCompSegmentBytes(ansOutOffsets[batch]);
+        ansOutOffsets.data()[batch] = roundUp(tempOutSize_dev.data()[batch], 16);
+      headerOut->setFirstCompSegmentBytes(ansOutOffsets.data()[batch]);
       RUN_ANS(FloatType::kFloat64, 1);
       break;
     default:

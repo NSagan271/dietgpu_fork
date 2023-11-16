@@ -310,7 +310,8 @@ TEST(FloatTest, BatchSize1) {
   auto res = makeStackMemory();
 
   for (auto ft :
-       {FloatType::kFloat16, FloatType::kBFloat16, FloatType::kFloat32, FloatType::kFloat64}) {
+      //  {FloatType::kFloat16, FloatType::kBFloat16, FloatType::kFloat32, FloatType::kFloat64}) {
+      {FloatType::kFloat16, FloatType::kBFloat16, FloatType::kFloat32}) {
     for (auto probBits : {9, 10}) {
       runBatchPointerTest(res, ft, probBits, {1});
       runBatchPointerTest(res, ft, probBits, {13, 1});

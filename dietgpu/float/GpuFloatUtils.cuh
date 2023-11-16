@@ -89,8 +89,17 @@ struct __align__(16) GpuFloatHeader {
 
 static_assert(sizeof(GpuFloatHeader) == 32, "");
 
+struct __align__(16) uint64x2 {
+  uint64_t x[2];
+};
+
+
 struct __align__(16) uint32x4 {
   uint32_t x[4];
+};
+
+struct __align__(8) uint32x2 {
+  uint32_t x[2];
 };
 
 struct __align__(16) uint16x8 {
@@ -101,12 +110,20 @@ struct __align__(8) uint16x4 {
   uint16_t x[4];
 };
 
+struct __align__(4) uint16x2 {
+  uint16_t x[2];
+};
+
 struct __align__(8) uint8x8 {
   uint8_t x[8];
 };
 
 struct __align__(4) uint8x4 {
   uint8_t x[4];
+};
+
+struct __align__(2) uint8x2 {
+  uint8_t x[2];
 };
 
 // Convert FloatType to word size/type
@@ -136,7 +153,7 @@ struct FloatTypeInfo<FloatType::kFloat16> {
     nonComp = in & 0xff;
   }
 
-  static __device__ WordT join(CompT* comp, NonCompT nonComp) {
+  static __device__ WordT join(const CompT* comp, NonCompT nonComp) {
     return WordT(*comp) * WordT(256) + WordT(nonComp);
   }
 
@@ -146,6 +163,14 @@ struct FloatTypeInfo<FloatType::kFloat16> {
     // The size of the uncompressed data is always a multiple of 16 bytes, to
     // guarantee alignment for proceeding data segments
     return roundUp(size, 16 / sizeof(NonCompT));
+  }
+
+  static __device__ size_t getNumCompSegments() {
+    return 1;
+  }
+
+  static __device__ bool getIfNonCompSplit() {
+    return false;
   }
 };
 
@@ -174,7 +199,7 @@ struct FloatTypeInfo<FloatType::kBFloat16> {
     nonComp = v & 0xff;
   }
 
-  static __device__ WordT join(CompT *comp, NonCompT nonComp) {
+  static __device__ WordT join(const CompT *comp, NonCompT nonComp) {
     uint32_t lo = uint32_t(*comp) * 256U + uint32_t(nonComp);
     lo <<= 16;
     uint32_t hi = nonComp;
@@ -192,6 +217,14 @@ struct FloatTypeInfo<FloatType::kBFloat16> {
     // The size of the uncompressed data is always a multiple of 16 bytes, to
     // guarantee alignment for proceeding data segments
     return roundUp(size, 16 / sizeof(NonCompT));
+  }
+
+  static __device__ size_t getNumCompSegments() {
+    return 1;
+  }
+
+  static __device__ bool getIfNonCompSplit() {
+    return false;
   }
 };
 
@@ -218,7 +251,7 @@ struct FloatTypeInfo<FloatType::kFloat32> {
     nonComp = v & 0xffffffU;
   }
 
-  static __device__ WordT join(CompT* comp, NonCompT nonComp) {
+  static __device__ WordT join(const CompT* comp, NonCompT nonComp) {
     uint32_t v = (uint32_t(*comp) * 16777216U) + uint32_t(nonComp);
     return rotateRight(v, 1);
   }
@@ -234,6 +267,14 @@ struct FloatTypeInfo<FloatType::kFloat32> {
     return 2 * roundUp(size, 8) + // low order 2 bytes
         roundUp(size, 16); // high order 1 byte, starting at an aligned address
                            // after the low 2 byte segment
+  }
+
+  static __device__ size_t getNumCompSegments() {
+    return 1;
+  }
+
+  static __device__ bool getIfNonCompSplit() {
+    return true;
   }
 };
 
@@ -262,7 +303,7 @@ struct FloatTypeInfo<FloatType::kFloat64> {
     nonComp = v & 0xffffffffffffU;
   }
 
-  static __device__ WordT join(CompT* comp, NonCompT nonComp) {
+  static __device__ WordT join(const CompT* comp, NonCompT nonComp) {
     uint64_t v = (uint64_t(comp[0]) * 0xffffffffffffffU + uint64_t(comp[1]) * 0xffffffffffffU + 
                   uint64_t(nonComp));
     return rotateRight(v, 1);
@@ -279,7 +320,15 @@ struct FloatTypeInfo<FloatType::kFloat64> {
     return 4 * roundUp(size, 4) + // low order 4 bytes
         roundUp(size, 8);         // high order 2 bytes, starting at an aligned address
   }
-}
+
+  static __device__ size_t getNumCompSegments() {
+    return 2;
+  }
+
+  static __device__ bool getIfNonCompSplit() {
+    return true;
+  }
+};
 
 inline size_t getWordSizeFromFloatType(FloatType ft) {
   switch (ft) {
@@ -295,13 +344,5 @@ inline size_t getWordSizeFromFloatType(FloatType ft) {
       return 0;
   }
 }
-
-inline size_t getNumCompSegmentsFromFloatType(FloatType ft) {
-  return (ft == FloatType::kFloat64) ? 2 : 1;
-}
-
-inline bool getIfNonCompSplitFromFloatType(FloatType ft) {
-  return ft == FloatType::kFloat32 || ft == FloatType::kFloat64;
-} 
 
 } // namespace dietgpu
