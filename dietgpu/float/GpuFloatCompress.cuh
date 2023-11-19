@@ -177,6 +177,8 @@ struct SplitFloatAligned16 {
     NonCompVecSplit1T* nonCompOutV1 = (NonCompVecSplit1T*)nonCompOut1;
     NonCompVecSplit2T* nonCompOutV2 = (NonCompVecSplit2T*)nonCompOut2;
 
+    uint32_t compDatasetStrideVec = compDatasetStride / kInnerUnroll;
+
     // Each block handles Threads * kOuterUnroll * kInnerUnroll inputs/outputs
     // at a time, or Threads * kOuterUnroll 16-byte words at a time
 
@@ -229,7 +231,7 @@ struct SplitFloatAligned16 {
 #pragma unroll
       for (uint32_t i = 0; i < kOuterUnroll; ++i) {
         for (int k = 0; k < numCompSegments; k++) {
-          compOutsV[i*Threads + k*compDatasetStride] = compV[k*kOuterUnroll + i];
+          compOutsV[i*Threads + k*compDatasetStrideVec] = compV[k*kOuterUnroll + i];
         }
 
         nonCompOutV1[i * Threads] = nonCompV1[i];
@@ -301,7 +303,6 @@ __global__ void splitFloat(
     }
   }
 
-
   __syncthreads();
 
   uint32_t* warpHistograms = histogram[warpId];
@@ -351,6 +352,7 @@ __global__ void splitFloat(
       sums[k] += histogram[j][threadIdx.x + k*roundUp(kNumSymbols + 1, 4)];
     }
   }
+
 
   // The count for the thread's bucket could be 0
   for (int k = 0; k < numHists; k++) {
@@ -500,7 +502,7 @@ void floatCompressDevice(
 
   // We calculate a histogram of the symbols to be compressed as part of
   // extracting the compressible symbol from the float
-  auto histograms_dev = res.alloc<uint32_t>(stream, roundUp(numInBatch * kNumSymbols, 2) * MAX_NUM_COMP_OUTS);
+  auto histograms_dev = res.alloc<uint32_t>(stream, roundUp(numInBatch * kNumSymbols, 4) * MAX_NUM_COMP_OUTS);
 
   // zero out buckets before proceeding, as we aggregate with atomic adds
   CUDA_VERIFY(cudaMemsetAsync(
@@ -531,7 +533,7 @@ void floatCompressDevice(
             toComp_dev.data(),                                     \
             compRowStride,                                         \
             roundUp(numInBatch * compRowStride, 16),               \
-            roundUp(numInBatch * kNumSymbols, 2),                  \
+            roundUp(numInBatch * kNumSymbols, 4),                  \
             outProvider,                                           \
             histograms_dev.data());                                \
   } while (false)
@@ -582,7 +584,7 @@ void floatCompressDevice(
         numInBatch,                                                         \
         inProviderANS,                                                      \
         histograms_dev.data() + compSegment *                               \
-                    roundUp(numInBatch * kNumSymbols, 2),                   \
+                    roundUp(numInBatch * kNumSymbols, 4),                   \
         maxSize,                                                            \
         outProviderANS,                                                     \
         outSizes,                                                           \
