@@ -1,0 +1,5 @@
+if(EXISTS "/home/ee274_mfguo_nsagan/mfguo/dietgpu_fork/build/dietgpu/ans/batch_prefix_sum_test[1]_tests.cmake")
+  include("/home/ee274_mfguo_nsagan/mfguo/dietgpu_fork/build/dietgpu/ans/batch_prefix_sum_test[1]_tests.cmake")
+else()
+  add_test(batch_prefix_sum_test_NOT_BUILT batch_prefix_sum_test_NOT_BUILT)
+endif()

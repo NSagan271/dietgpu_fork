@@ -611,6 +611,9 @@ FloatDecompressStatus floatDecompressDevice(
       case FloatType::kFloat32:
         RUN_FUSED(FloatType::kFloat32);
         break;
+      case FloatType::kFloat64:
+        RUN_FUSED(FloatType::kFloat64);
+        break;
       default:
         CHECK(false);
         break;
@@ -684,6 +687,9 @@ FloatDecompressStatus floatDecompressDevice(
         break;
       case FloatType::kFloat32:
         RUN_DECODE(FloatType::kFloat32);
+        break;
+      case FloatType::kFloat64:
+        RUN_DECODE(FloatType::kFloat64);
         break;
       default:
         CHECK(false);

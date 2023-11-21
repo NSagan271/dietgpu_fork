@@ -1,0 +1,274 @@
+Performing C++ SOURCE FILE Test CMAKE_HAVE_LIBC_PTHREAD failed with the following output:
+Change Dir: /home/ee274_mfguo_nsagan/mfguo/dietgpu_fork/build/CMakeFiles/CMakeTmp
+
+Run Build Command(s):/usr/bin/ninja cmTC_1e200 && [1/2] Building CXX object CMakeFiles/cmTC_1e200.dir/src.cxx.o
+[2/2] Linking CXX executable cmTC_1e200
+FAILED: cmTC_1e200 
+: && /usr/local/bin/c++ -DCMAKE_HAVE_LIBC_PTHREAD  CMakeFiles/cmTC_1e200.dir/src.cxx.o -o cmTC_1e200   && :
+CMakeFiles/cmTC_1e200.dir/src.cxx.o: In function `main':
+src.cxx:(.text+0x3e): undefined reference to `pthread_create'
+src.cxx:(.text+0x4a): undefined reference to `pthread_detach'
+src.cxx:(.text+0x56): undefined reference to `pthread_cancel'
+src.cxx:(.text+0x67): undefined reference to `pthread_join'
+src.cxx:(.text+0x7b): undefined reference to `pthread_atfork'
+collect2: error: ld returned 1 exit status
+ninja: build stopped: subcommand failed.
+
+
+Source file was:
+#include <pthread.h>
+
+void* test_func(void* data)
+{
+  return data;
+}
+
+int main(void)
+{
+  pthread_t thread;
+  pthread_create(&thread, NULL, test_func, NULL);
+  pthread_detach(thread);
+  pthread_cancel(thread);
+  pthread_join(thread, NULL);
+  pthread_atfork(NULL, NULL, NULL);
+  pthread_exit(NULL);
+
+  return 0;
+}
+
+Determining if the function pthread_create exists in the pthreads failed with the following output:
+Change Dir: /home/ee274_mfguo_nsagan/mfguo/dietgpu_fork/build/CMakeFiles/CMakeTmp
+
+Run Build Command(s):/usr/bin/ninja cmTC_61707 && [1/2] Building CXX object CMakeFiles/cmTC_61707.dir/CheckFunctionExists.cxx.o
+[2/2] Linking CXX executable cmTC_61707
+FAILED: cmTC_61707 
+: && /usr/local/bin/c++ -DCHECK_FUNCTION_EXISTS=pthread_create  CMakeFiles/cmTC_61707.dir/CheckFunctionExists.cxx.o -o cmTC_61707  -lpthreads && :
+/usr/bin/ld: cannot find -lpthreads
+collect2: error: ld returned 1 exit status
+ninja: build stopped: subcommand failed.
+
+
+
+Determining size of unsigned __int16 failed with the following output:
+Change Dir: /home/ee274_mfguo_nsagan/mfguo/dietgpu_fork/build/CMakeFiles/CMakeTmp
+
+Run Build Command(s):/usr/bin/ninja cmTC_8bfc3 && [1/2] Building CXX object CMakeFiles/cmTC_8bfc3.dir/HAVE___UINT16.cpp.o
+FAILED: CMakeFiles/cmTC_8bfc3.dir/HAVE___UINT16.cpp.o 
+/usr/local/bin/c++   -fPIE -std=gnu++14 -o CMakeFiles/cmTC_8bfc3.dir/HAVE___UINT16.cpp.o -c /home/ee274_mfguo_nsagan/mfguo/dietgpu_fork/build/CMakeFiles/CheckTypeSize/HAVE___UINT16.cpp
+/home/ee274_mfguo_nsagan/mfguo/dietgpu_fork/build/CMakeFiles/CheckTypeSize/HAVE___UINT16.cpp:27:22: error: expected primary-expression before ‘unsigned’
+   27 | #define SIZE (sizeof(unsigned __int16))
+      |                      ^~~~~~~~
+/home/ee274_mfguo_nsagan/mfguo/dietgpu_fork/build/CMakeFiles/CheckTypeSize/HAVE___UINT16.cpp:29:12: note: in expansion of macro ‘SIZE’
+   29 |   ('0' + ((SIZE / 10000)%10)),
+      |            ^~~~
+/home/ee274_mfguo_nsagan/mfguo/dietgpu_fork/build/CMakeFiles/CheckTypeSize/HAVE___UINT16.cpp:27:22: error: expected ‘)’ before ‘unsigned’
+   27 | #define SIZE (sizeof(unsigned __int16))
+      |                     ~^~~~~~~~
+/home/ee274_mfguo_nsagan/mfguo/dietgpu_fork/build/CMakeFiles/CheckTypeSize/HAVE___UINT16.cpp:29:12: note: in expansion of macro ‘SIZE’
+   29 |   ('0' + ((SIZE / 10000)%10)),
+      |            ^~~~
+/home/ee274_mfguo_nsagan/mfguo/dietgpu_fork/build/CMakeFiles/CheckTypeSize/HAVE___UINT16.cpp:38:7: error: expected ‘)’ before ‘}’ token
+   38 |   '\0'};
+      |       ^
+      |       )
+/home/ee274_mfguo_nsagan/mfguo/dietgpu_fork/build/CMakeFiles/CheckTypeSize/HAVE___UINT16.cpp:27:14: note: to match this ‘(’
+   27 | #define SIZE (sizeof(unsigned __int16))
+      |              ^
+/home/ee274_mfguo_nsagan/mfguo/dietgpu_fork/build/CMakeFiles/CheckTypeSize/HAVE___UINT16.cpp:29:12: note: in expansion of macro ‘SIZE’
+   29 |   ('0' + ((SIZE / 10000)%10)),
+      |            ^~~~
+/home/ee274_mfguo_nsagan/mfguo/dietgpu_fork/build/CMakeFiles/CheckTypeSize/HAVE___UINT16.cpp:38:7: error: expected ‘)’ before ‘}’ token
+   38 |   '\0'};
+      |       ^
+      |       )
+/home/ee274_mfguo_nsagan/mfguo/dietgpu_fork/build/CMakeFiles/CheckTypeSize/HAVE___UINT16.cpp:29:11: note: to match this ‘(’
+   29 |   ('0' + ((SIZE / 10000)%10)),
+      |           ^
+/home/ee274_mfguo_nsagan/mfguo/dietgpu_fork/build/CMakeFiles/CheckTypeSize/HAVE___UINT16.cpp:38:7: error: expected ‘)’ before ‘}’ token
+   38 |   '\0'};
+      |       ^
+      |       )
+/home/ee274_mfguo_nsagan/mfguo/dietgpu_fork/build/CMakeFiles/CheckTypeSize/HAVE___UINT16.cpp:29:10: note: to match this ‘(’
+   29 |   ('0' + ((SIZE / 10000)%10)),
+      |          ^
+/home/ee274_mfguo_nsagan/mfguo/dietgpu_fork/build/CMakeFiles/CheckTypeSize/HAVE___UINT16.cpp:38:7: error: expected ‘)’ before ‘}’ token
+   38 |   '\0'};
+      |       ^
+      |       )
+/home/ee274_mfguo_nsagan/mfguo/dietgpu_fork/build/CMakeFiles/CheckTypeSize/HAVE___UINT16.cpp:29:3: note: to match this ‘(’
+   29 |   ('0' + ((SIZE / 10000)%10)),
+      |   ^
+ninja: build stopped: subcommand failed.
+
+
+/home/ee274_mfguo_nsagan/mfguo/dietgpu_fork/build/CMakeFiles/CheckTypeSize/HAVE___UINT16.cpp:
+#include <sys/types.h>
+#include <stdint.h>
+#include <stddef.h>
+
+
+#undef KEY
+#if defined(__i386)
+# define KEY '_','_','i','3','8','6'
+#elif defined(__x86_64)
+# define KEY '_','_','x','8','6','_','6','4'
+#elif defined(__PPC64__)
+# define KEY '_','_','P','P','C','6','4','_','_'
+#elif defined(__ppc64__)
+# define KEY '_','_','p','p','c','6','4','_','_'
+#elif defined(__PPC__)
+# define KEY '_','_','P','P','C','_','_'
+#elif defined(__ppc__)
+# define KEY '_','_','p','p','c','_','_'
+#elif defined(__aarch64__)
+# define KEY '_','_','a','a','r','c','h','6','4','_','_'
+#elif defined(__ARM_ARCH_7A__)
+# define KEY '_','_','A','R','M','_','A','R','C','H','_','7','A','_','_'
+#elif defined(__ARM_ARCH_7S__)
+# define KEY '_','_','A','R','M','_','A','R','C','H','_','7','S','_','_'
+#endif
+
+#define SIZE (sizeof(unsigned __int16))
+static char info_size[] =  {'I', 'N', 'F', 'O', ':', 's','i','z','e','[',
+  ('0' + ((SIZE / 10000)%10)),
+  ('0' + ((SIZE / 1000)%10)),
+  ('0' + ((SIZE / 100)%10)),
+  ('0' + ((SIZE / 10)%10)),
+  ('0' +  (SIZE    % 10)),
+  ']',
+#ifdef KEY
+  ' ','k','e','y','[', KEY, ']',
+#endif
+  '\0'};
+
+#ifdef __CLASSIC_C__
+int main(argc, argv) int argc; char *argv[];
+#else
+int main(int argc, char *argv[])
+#endif
+{
+  int require = 0;
+  require += info_size[argc];
+  (void)argv;
+  return require;
+}
+
+
+Determining if the function dladdr exists failed with the following output:
+Change Dir: /home/ee274_mfguo_nsagan/mfguo/dietgpu_fork/build/CMakeFiles/CMakeTmp
+
+Run Build Command(s):/usr/bin/ninja cmTC_9e2da && [1/2] Building CXX object CMakeFiles/cmTC_9e2da.dir/CheckFunctionExists.cxx.o
+[2/2] Linking CXX executable cmTC_9e2da
+FAILED: cmTC_9e2da 
+: && /usr/local/bin/c++ -DCHECK_FUNCTION_EXISTS=dladdr  CMakeFiles/cmTC_9e2da.dir/CheckFunctionExists.cxx.o -o cmTC_9e2da   && :
+CMakeFiles/cmTC_9e2da.dir/CheckFunctionExists.cxx.o: In function `main':
+CheckFunctionExists.cxx:(.text+0x10): undefined reference to `dladdr'
+collect2: error: ld returned 1 exit status
+ninja: build stopped: subcommand failed.
+
+
+
+Performing C++ SOURCE FILE Test HAVE_NO_UNNAMED_TYPE_TEMPLATE_ARGS failed with the following output:
+Change Dir: /home/ee274_mfguo_nsagan/mfguo/dietgpu_fork/build/CMakeFiles/CMakeTmp
+
+Run Build Command(s):/usr/bin/ninja cmTC_73543 && [1/2] Building CXX object CMakeFiles/cmTC_73543.dir/src.cxx.o
+FAILED: CMakeFiles/cmTC_73543.dir/src.cxx.o 
+/usr/local/bin/c++   -DHAVE_NO_UNNAMED_TYPE_TEMPLATE_ARGS -fPIE   -Wunnamed-type-template-args -std=gnu++14 -o CMakeFiles/cmTC_73543.dir/src.cxx.o -c src.cxx
+c++: error: unrecognized command line option '-Wunnamed-type-template-args'
+ninja: build stopped: subcommand failed.
+
+
+Source file was:
+int main() { return 0; }
+Determining if the pthread_threadid_np exist failed with the following output:
+Change Dir: /home/ee274_mfguo_nsagan/mfguo/dietgpu_fork/build/CMakeFiles/CMakeTmp
+
+Run Build Command(s):/usr/bin/ninja cmTC_9e814 && [1/2] Building CXX object CMakeFiles/cmTC_9e814.dir/CheckSymbolExists.cxx.o
+FAILED: CMakeFiles/cmTC_9e814.dir/CheckSymbolExists.cxx.o 
+/usr/local/bin/c++   -fPIE -std=gnu++14 -o CMakeFiles/cmTC_9e814.dir/CheckSymbolExists.cxx.o -c CheckSymbolExists.cxx
+CheckSymbolExists.cxx: In function ‘int main(int, char**)’:
+CheckSymbolExists.cxx:8:19: error: ‘pthread_threadid_np’ was not declared in this scope; did you mean ‘pthread_tryjoin_np’?
+    8 |   return ((int*)(&pthread_threadid_np))[argc];
+      |                   ^~~~~~~~~~~~~~~~~~~
+      |                   pthread_tryjoin_np
+ninja: build stopped: subcommand failed.
+
+
+File /home/ee274_mfguo_nsagan/mfguo/dietgpu_fork/build/CMakeFiles/CMakeTmp/CheckSymbolExists.cxx:
+/* */
+#include <pthread.h>
+
+int main(int argc, char** argv)
+{
+  (void)argv;
+#ifndef pthread_threadid_np
+  return ((int*)(&pthread_threadid_np))[argc];
+#else
+  (void)argc;
+  return 0;
+#endif
+}
+Determining if the function UnDecorateSymbolName exists in the dbghelp failed with the following output:
+Change Dir: /home/ee274_mfguo_nsagan/mfguo/dietgpu_fork/build/CMakeFiles/CMakeTmp
+
+Run Build Command(s):/usr/bin/ninja cmTC_c5cad && [1/2] Building CXX object CMakeFiles/cmTC_c5cad.dir/CheckFunctionExists.cxx.o
+[2/2] Linking CXX executable cmTC_c5cad
+FAILED: cmTC_c5cad 
+: && /usr/local/bin/c++ -DCHECK_FUNCTION_EXISTS=UnDecorateSymbolName  CMakeFiles/cmTC_c5cad.dir/CheckFunctionExists.cxx.o -o cmTC_c5cad  -ldbghelp && :
+/usr/bin/ld: cannot find -ldbghelp
+collect2: error: ld returned 1 exit status
+ninja: build stopped: subcommand failed.
+
+
+
+Performing C++ SOURCE FILE Test HAVE___DECLSPEC failed with the following output:
+Change Dir: /home/ee274_mfguo_nsagan/mfguo/dietgpu_fork/build/CMakeFiles/CMakeTmp
+
+Run Build Command(s):/usr/bin/ninja cmTC_24143 && [1/2] Building CXX object CMakeFiles/cmTC_24143.dir/src.cxx.o
+FAILED: CMakeFiles/cmTC_24143.dir/src.cxx.o 
+/usr/local/bin/c++   -DHAVE___DECLSPEC -fPIE -std=gnu++14 -o CMakeFiles/cmTC_24143.dir/src.cxx.o -c src.cxx
+src.cxx:2:11: error: expected constructor, destructor, or type conversion before ‘(’ token
+    2 | __declspec(selectany) int a;
+      |           ^
+ninja: build stopped: subcommand failed.
+
+
+Source file was:
+
+__declspec(selectany) int a;
+int main(void) { return 0; }
+
+Performing C++ SOURCE FILE Test STL_NO_NAMESPACE failed with the following output:
+Change Dir: /home/ee274_mfguo_nsagan/mfguo/dietgpu_fork/build/CMakeFiles/CMakeTmp
+
+Run Build Command(s):/usr/bin/ninja cmTC_72192 && [1/2] Building CXX object CMakeFiles/cmTC_72192.dir/src.cxx.o
+FAILED: CMakeFiles/cmTC_72192.dir/src.cxx.o 
+/usr/local/bin/c++   -DSTL_NO_NAMESPACE -fPIE -std=gnu++14 -o CMakeFiles/cmTC_72192.dir/src.cxx.o -c src.cxx
+src.cxx:3:1: error: ‘vector’ does not name a type
+    3 | vector<int> t; int main() { }
+      | ^~~~~~
+ninja: build stopped: subcommand failed.
+
+
+Source file was:
+
+#include <vector>
+vector<int> t; int main() { }
+
+Performing C++ SOURCE FILE Test HAVE_MSVC_TLS failed with the following output:
+Change Dir: /home/ee274_mfguo_nsagan/mfguo/dietgpu_fork/build/CMakeFiles/CMakeTmp
+
+Run Build Command(s):/usr/bin/ninja cmTC_8b347 && [1/2] Building CXX object CMakeFiles/cmTC_8b347.dir/src.cxx.o
+FAILED: CMakeFiles/cmTC_8b347.dir/src.cxx.o 
+/usr/local/bin/c++   -DHAVE_MSVC_TLS -fPIE -std=gnu++14 -o CMakeFiles/cmTC_8b347.dir/src.cxx.o -c src.cxx
+src.cxx:2:11: error: expected constructor, destructor, or type conversion before ‘(’ token
+    2 | __declspec(thread) int tls;
+      |           ^
+ninja: build stopped: subcommand failed.
+
+
+Source file was:
+
+__declspec(thread) int tls;
+int main() { }
+
