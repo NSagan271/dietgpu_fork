@@ -1,7 +1,3 @@
 add_test( FloatTest.Batch /home/ee274_mfguo_nsagan/mfguo/dietgpu_fork/build/bin/float_test [==[--gtest_filter=FloatTest.Batch]==] --gtest_also_run_disabled_tests)
 set_tests_properties( FloatTest.Batch PROPERTIES WORKING_DIRECTORY /home/ee274_mfguo_nsagan/mfguo/dietgpu_fork/build/dietgpu/float SKIP_REGULAR_EXPRESSION [==[\[  SKIPPED \]]==])
-add_test( FloatTest.LargeBatch /home/ee274_mfguo_nsagan/mfguo/dietgpu_fork/build/bin/float_test [==[--gtest_filter=FloatTest.LargeBatch]==] --gtest_also_run_disabled_tests)
-set_tests_properties( FloatTest.LargeBatch PROPERTIES WORKING_DIRECTORY /home/ee274_mfguo_nsagan/mfguo/dietgpu_fork/build/dietgpu/float SKIP_REGULAR_EXPRESSION [==[\[  SKIPPED \]]==])
-add_test( FloatTest.BatchSize1 /home/ee274_mfguo_nsagan/mfguo/dietgpu_fork/build/bin/float_test [==[--gtest_filter=FloatTest.BatchSize1]==] --gtest_also_run_disabled_tests)
-set_tests_properties( FloatTest.BatchSize1 PROPERTIES WORKING_DIRECTORY /home/ee274_mfguo_nsagan/mfguo/dietgpu_fork/build/dietgpu/float SKIP_REGULAR_EXPRESSION [==[\[  SKIPPED \]]==])
-set( float_test_TESTS FloatTest.Batch FloatTest.LargeBatch FloatTest.BatchSize1)
+set( float_test_TESTS FloatTest.Batch)

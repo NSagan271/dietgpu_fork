@@ -31,7 +31,7 @@ struct JoinFloatNonAligned {
       typename FloatTypeInfo<FT>::WordT* __restrict__ out) {
     for (uint32_t i = blockIdx.x * Threads + threadIdx.x; i < size;
          i += gridDim.x * Threads) {
-      out[i] = FloatTypeInfo<FT>::join(compIn[i], nonCompIn[i]);
+      out[i] = FloatTypeInfo<FT>::join(&compIn[i], nonCompIn[i]);
     }
   }
 };
@@ -60,7 +60,7 @@ struct JoinFloatNonAligned<FloatType::kFloat32, Threads> {
       uint32_t nc =
           (uint32_t(nonComp1In[i]) * 65536U) + uint32_t(nonComp2In[i]);
 
-      out[i] = FTI::join(compIn[i], nc);
+      out[i] = FTI::join(&compIn[i], nc);
     }
   }
 };
@@ -120,7 +120,7 @@ struct JoinFloatAligned16 {
       for (uint32_t i = 0; i < kOuterUnroll; ++i) {
 #pragma unroll
         for (int j = 0; j < kInnerUnroll; ++j) {
-          v[i].x[j] = FTI::join(comp[i].x[j], nonComp[i].x[j]);
+          v[i].x[j] = FTI::join(&comp[i].x[j], nonComp[i].x[j]);
         }
       }
 
@@ -135,7 +135,7 @@ struct JoinFloatAligned16 {
              fullBlocks * kFloatsPerBlock + blockIdx.x * Threads + threadIdx.x;
          i < size;
          i += blockDim.x) {
-      out[i] = FTI::join(compIn[i], nonCompIn[i]);
+      out[i] = FTI::join(&compIn[i], nonCompIn[i]);
     }
   }
 };
@@ -212,7 +212,7 @@ struct JoinFloatAligned16<FloatType::kFloat32, Threads> {
       for (uint32_t i = 0; i < kOuterUnroll; ++i) {
 #pragma unroll
         for (int j = 0; j < kInnerUnroll; ++j) {
-          v[i].x[j] = FTI::join(comp[i].x[j], nonComp[i].x[j]);
+          v[i].x[j] = FTI::join(&comp[i].x[j], nonComp[i].x[j]);
         }
       }
 
@@ -231,7 +231,7 @@ struct JoinFloatAligned16<FloatType::kFloat32, Threads> {
       uint32_t nc1 = nonCompIn1[i];
       uint32_t nc = nc1 * 65536U + nc2;
 
-      out[i] = FTI::join(compIn[i], nc);
+      out[i] = FTI::join(&compIn[i], nc);
     }
   }
 };
@@ -408,7 +408,7 @@ struct JoinFloatWriter {
 
   __device__ void write(uint32_t offset, uint8_t sym) {
     auto nonComp = nonCompBlock_[offset];
-    outBlock_[offset] = FTI::join(sym, nonComp);
+    outBlock_[offset] = FTI::join(&sym, nonComp);
   }
 
   // // The preload is an offset of a NonCompVec4
@@ -466,7 +466,7 @@ struct JoinFloatWriter<FloatType::kFloat32, BlockSize> {
     uint32_t nc = uint32_t(nonCompBlock1_[offset]) * 65536U +
         uint32_t(nonCompBlock2_[offset]);
 
-    outBlock_[offset] = FTI::join(sym, nc);
+    outBlock_[offset] = FTI::join(&sym, nc);
   }
 
   // // This implementation does not preload

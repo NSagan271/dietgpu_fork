@@ -639,13 +639,13 @@ c10_LIBRARY:FILEPATH=/home/ee274_mfguo_nsagan/venv/lib/python3.9/site-packages/t
 dietgpu_BINARY_DIR:STATIC=/home/ee274_mfguo_nsagan/mfguo/dietgpu_fork/build
 
 //Dependencies for the target
-dietgpu_LIB_DEPENDS:STATIC=general;gpu_float_compress;general;glog::glog;
+dietgpu_LIB_DEPENDS:STATIC=general;gpu_float_compress;general;glog::glog;general;torch;torch_library;/home/ee274_mfguo_nsagan/venv/lib/python3.9/site-packages/torch/lib/libc10.so;/usr/local/cuda/lib64/stubs/libcuda.so;/usr/local/cuda/lib64/libnvrtc.so;/usr/lib/x86_64-linux-gnu/libnvToolsExt.so;/usr/local/cuda/lib64/libcudart.so;/home/ee274_mfguo_nsagan/venv/lib/python3.9/site-packages/torch/lib/libc10_cuda.so;
 
 //Value Computed by CMake
 dietgpu_SOURCE_DIR:STATIC=/home/ee274_mfguo_nsagan/mfguo/dietgpu_fork
 
 //Dependencies for the target
-dietgpu_utils_LIB_DEPENDS:STATIC=general;/usr/local/cuda/lib64/libcudart_static.a;general;dl;general;/usr/lib/x86_64-linux-gnu/librt.so;general;glog::glog;
+dietgpu_utils_LIB_DEPENDS:STATIC=general;/usr/local/cuda/lib64/libcudart.so;general;glog::glog;
 
 //The directory containing a CMake configuration file for gflags.
 gflags_DIR:PATH=/usr/lib/x86_64-linux-gnu/cmake/gflags

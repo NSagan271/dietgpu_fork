@@ -1,0 +1,18 @@
+Float32
+
+float32, shifted left by 1:
+
+cccccccc (8b) nnnnnnnnnnnnnnnn (16b) mmmmmmmm (8b)
+
+
+Header (32B), nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn... (2B * number of floats), mmmmmmmmmmmmmmmmmmmmmmm... (1B * num)
+ANS compressed section
+
+Float 64:
+
+float64, shifted left by 1:
+
+c... (1B) d... (1B) n... (4B) m... (2B)
+
+Header (32B), nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn... (4B * number of floats), mmmmmmmmmmmmmmmmmmmmmmm... (2B * num)
+ANS compressed section for c (firstCompSegmentBytes in header), ANS compressed section of d

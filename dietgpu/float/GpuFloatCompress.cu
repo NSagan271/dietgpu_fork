@@ -36,6 +36,9 @@ uint32_t getMaxFloatCompressedSize(FloatType floatType, uint32_t size) {
     case FloatType::kFloat32:
       baseSize += FloatTypeInfo<FloatType::kFloat32>::getUncompDataSize(size);
       break;
+    case FloatType::kFloat64:
+      baseSize += FloatTypeInfo<FloatType::kFloat64>::getUncompDataSize(size);
+      break;
     default:
       CHECK(false);
       break;
