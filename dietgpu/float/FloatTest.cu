@@ -282,7 +282,9 @@ void runBatchPointerTest(
 TEST(FloatTest, Batch) {
   auto res = makeStackMemory();
 
+  // Note to Mingfei: the first function call works...
   runBatchPointerTest(res, FloatType::kFloat64, 9, 3, 16);
+  // ... and the second has a misaligned address error in splitFloat (GpuFloatCompress.cuh)
   runBatchPointerTest(res, FloatType::kFloat64, 9, 3);
 
   // for (auto ft :
