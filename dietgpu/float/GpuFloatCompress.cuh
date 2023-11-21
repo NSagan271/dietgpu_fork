@@ -313,7 +313,6 @@ __global__ void splitFloat(
   CompT* curCompOuts = (CompT*) compOuts + compOutStride * batch;
   auto curSize = inProvider.getBatchSize(batch);
 
-
   // Write size as a header
   if (blockIdx.x == 0 && threadIdx.x == 0) {
     GpuFloatHeader h;
@@ -369,7 +368,7 @@ __global__ void
 incOutputSizes(InProvider inProvider, uint32_t* outSize, uint32_t numInBatch) {
   uint32_t batch = blockIdx.x * blockDim.x + threadIdx.x;
   if (batch < numInBatch) {
-    outSize[batch] += sizeof(GpuFloatHeader) +
+    outSize[batch] += sizeof(GpuFloatHeader) + sizeof(GpuFloatHeader2) +
         FloatTypeInfo<FT>::getUncompDataSize(inProvider.getBatchSize(batch));
   }
 }
@@ -421,21 +420,16 @@ struct FloatANSOutProvider {
   __host__ FloatANSOutProvider(
       OutProvider& outProvider,
       SizeProvider& sizeProvider,
-      uint32_t offset)
-      : outProvider_(outProvider), sizeProvider_(sizeProvider), offset_(offset) {
+      uint32_t* offsets)
+      : outProvider_(outProvider), sizeProvider_(sizeProvider), offsets_(offsets) {
       }
-  
-  __host__ FloatANSOutProvider(
-      OutProvider& outProvider,
-      SizeProvider& sizeProvider)
-      : outProvider_(outProvider), sizeProvider_(sizeProvider), offset_(0) {}
 
   __device__ void* getBatchStart(uint32_t batch) {
     uint8_t* p = (uint8_t*)outProvider_.getBatchStart(batch);
 
     // Increment the pointer to past the floating point data
     ((GpuFloatHeader*)p)->checkMagicAndVersion();
-    return p + offset_ + sizeof(GpuFloatHeader) + sizeof(GpuFloatHeader2) +
+    return p + offsets_[batch] + sizeof(GpuFloatHeader) + sizeof(GpuFloatHeader2) +
         FTI::getUncompDataSize(sizeProvider_.getBatchSize(batch));
   }
 
@@ -444,7 +438,7 @@ struct FloatANSOutProvider {
 
     // Increment the pointer to past the floating point data
     ((GpuFloatHeader*)p)->checkMagicAndVersion();
-    return p + offset_ + sizeof(GpuFloatHeader) + sizeof(GpuFloatHeader2) +
+    return p + offsets_[batch] + sizeof(GpuFloatHeader) + sizeof(GpuFloatHeader2) +
         FTI::getUncompDataSize(sizeProvider_.getBatchSize(batch));
   }
 
@@ -454,18 +448,19 @@ struct FloatANSOutProvider {
 
   OutProvider outProvider_;
   SizeProvider sizeProvider_;
-  uint32_t offset_;
+  uint32_t* offsets_;
 };
 
 template <typename InProvider, typename OutProvider, FloatType FT>
 __global__ void setHeaderAndANSOutOffset(OutProvider outProvider, 
       FloatANSOutProvider<FT, OutProvider, InProvider> outProviderANS, 
-      uint32_t* ansOutOffset) {
-  if (blockIdx.x == 0 && threadIdx.x == 0) {
-    auto headerOut = ((GpuFloatHeader2*) outProvider.getBatchStart(0)) + 1;
-    ANSCoalescedHeader* ansHeader = (ANSCoalescedHeader*) outProviderANS.getBatchStart(0);
-    *ansOutOffset = roundUp(ansHeader->getTotalCompressedSize(), 16);
-    headerOut->setFirstCompSegmentBytes(*ansOutOffset);
+      uint32_t* ansOutOffset, uint32_t numInBatch) {
+  uint32_t batch = blockIdx.x * blockDim.x + threadIdx.x;
+  if (batch < numInBatch) {
+    auto headerOut = ((GpuFloatHeader2*) outProvider.getBatchStart(batch)) + 1;
+    ANSCoalescedHeader* ansHeader = (ANSCoalescedHeader*) outProviderANS.getBatchStart(batch);
+    ansOutOffset[batch] = roundUp(ansHeader->getTotalCompressedSize(), 16);
+    headerOut->setFirstCompSegmentBytes(ansOutOffset[batch]);
   }
 }
 
@@ -499,8 +494,7 @@ void floatCompressDevice(
   auto toComp_dev = res.alloc<uint8_t>(stream, roundUp(numInBatch * compRowStride, 16) * MAX_NUM_COMP_OUTS);
 
   auto tempOutSize_dev = res.alloc<uint32_t>(stream, numInBatch);
-  auto ansOutOffset_dev = res.alloc<uint32_t>(stream, 4);
-  uint32_t* ansOutOffset_host = (uint32_t*) calloc(4, sizeof(uint32_t));
+  auto ansOutOffset_dev = res.alloc<uint32_t>(stream, numInBatch);
 
   // We calculate a histogram of the symbols to be compressed as part of
   // extracting the compressible symbol from the float
@@ -511,6 +505,12 @@ void floatCompressDevice(
       histograms_dev.data(),
       0,
       sizeof(uint32_t) * numInBatch * kNumSymbols,
+      stream));
+
+  CUDA_VERIFY(cudaMemsetAsync(
+      ansOutOffset_dev.data(),
+      0,
+      sizeof(uint32_t) * numInBatch,
       stream));
 
 #define RUN_SPLIT(FLOAT_TYPE)                                      \
@@ -574,7 +574,7 @@ uint32_t compSegment = 0;
         compRowStride, inProvider);                                         \
                                                                             \
     auto outProviderANS = FloatANSOutProvider<FT, OutProvider, InProvider>( \
-      outProvider, inProvider, ansOutOffset_host[0]);                       \
+      outProvider, inProvider, ansOutOffset_dev.data());                    \
                                                                             \
     uint32_t* outSizes = (compSegment == 0) ? outSize_dev :                 \
                               tempOutSize_dev.data();                       \
@@ -595,11 +595,9 @@ uint32_t compSegment = 0;
         incOutputSizes<FT><<<divUp(numInBatch, 128), 128, 0,                \
             stream>>>(inProvider, outSize_dev, numInBatch);                 \
         setHeaderAndANSOutOffset<InProvider, OutProvider, FT>               \
-                                <<<1, 1, 0, stream>>> (                     \
-                     outProvider, outProviderANS, ansOutOffset_dev.data()); \
-        CUDA_VERIFY(cudaMemcpyAsync(ansOutOffset_host,                      \
-                  ansOutOffset_dev.data(), 4*sizeof(uint32_t),              \
-                  cudaMemcpyDeviceToHost, stream));                         \
+                                <<<divUp(numInBatch, 128), 128, 0,          \
+                                    stream>>> ( outProvider, outProviderANS,\
+                                    ansOutOffset_dev.data(), numInBatch);   \
     }                                                                       \
     else                                                                    \
         incOutputSizes2<<<divUp(numInBatch, 128), 128, 0,                   \
@@ -623,7 +621,7 @@ uint32_t compSegment = 0;
       RUN_ANS(FloatType::kFloat32, 1);
       break;
     case FloatType::kFloat64:
-      RUN_ANS(FloatType::kFloat64, 2);
+      RUN_ANS(FloatType::kFloat64, 1);
       break;
     default:
       assert(false);
@@ -631,8 +629,6 @@ uint32_t compSegment = 0;
   }
 
 #undef RUN_ANS
-
- free(ansOutOffset_host);
 
   CUDA_TEST_ERROR();
 }

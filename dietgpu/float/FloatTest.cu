@@ -282,23 +282,23 @@ void runBatchPointerTest(
 TEST(FloatTest, Batch) {
   auto res = makeStackMemory();
 
-  // Note to Mingfei: the first function call works...
-  runBatchPointerTest(res, FloatType::kFloat64, 9, 3, 16);
-  // ... and the second has a misaligned address error in splitFloat (GpuFloatCompress.cuh)
-  runBatchPointerTest(res, FloatType::kFloat64, 9, 3);
+  // // Note to Mingfei: the first function call works...
+  // runBatchPointerTest(res, FloatType::kFloat64, 9, 3);
+  // std::cout << "HI" << std::endl;
+  // // ... and the second has a misaligned address error in splitFloat (GpuFloatCompress.cuh)
+  // runBatchPointerTest(res, FloatType::kFloat64, 9, 3, 16);
 
-  // for (auto ft :
-  //     //  {FloatType::kFloat16, FloatType::kBFloat16, FloatType::kFloat32, FloatType::kFloat64}) {
-  //         {FloatType::kFloat64}) {
-  //   for (auto probBits : {9, 10}) {
-  //     for (auto numInBatch : {1, 3, 16, 23}) {
-  //       runBatchPointerTest(res, ft, probBits, numInBatch);
-  //       // Also test the case where there is uniform 16 byte alignment across
-  //       // all batches
-  //       runBatchPointerTest(res, ft, probBits, numInBatch, 16);
-  //     }
-  //   }
-  // }
+  for (auto ft :
+       {FloatType::kFloat16, FloatType::kBFloat16, FloatType::kFloat32, FloatType::kFloat64}) {
+    for (auto probBits : {9, 10}) {
+      for (auto numInBatch : {1, 3, 16, 23}) {
+        runBatchPointerTest(res, ft, probBits, numInBatch);
+        // Also test the case where there is uniform 16 byte alignment across
+        // all batches
+        runBatchPointerTest(res, ft, probBits, numInBatch, 16);
+      }
+    }
+  }
 }
 
 TEST(FloatTest, LargeBatch) {

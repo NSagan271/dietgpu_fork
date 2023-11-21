@@ -321,7 +321,7 @@ struct FloatTypeInfo<FloatType::kFloat64> {
     // bytes afterwards.
     // Both sections should be 16 byte aligned
     return 4 * roundUp(size, 4) + // low order 4 bytes
-        roundUp(size, 8);         // high order 2 bytes, starting at an aligned address
+        2 * roundUp(size, 8);     // high order 2 bytes, starting at an aligned address
   }
 
   static __device__ size_t getNumCompSegments() {
