@@ -70,9 +70,9 @@ void floatCompress(
   static_assert(sizeof(uint32_t) <= sizeof(uintptr_t), "");
 
   // in, inSize, out
-  auto params_dev = res.alloc<uintptr_t>(stream, numInBatch * 4);
+  auto params_dev = res.alloc<uintptr_t>(stream, numInBatch * 3);
   auto params_host =
-      std::unique_ptr<uintptr_t[]>(new uintptr_t[4 * numInBatch]);
+      std::unique_ptr<uintptr_t[]>(new uintptr_t[3 * numInBatch]);
 
   std::memcpy(&params_host[0], in, numInBatch * sizeof(void*));
   std::memcpy(&params_host[numInBatch], inSize, numInBatch * sizeof(uint32_t));

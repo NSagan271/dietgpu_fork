@@ -112,10 +112,10 @@ struct UpdateCompAndHist<FloatType::kFloat64> {
 
       uint32_t* warpHistogram2DArr[MAX_NUM_COMP_OUTS] = {warpHistograms, warpHistograms + histDatasetStride};
 
-      NonCompSplit1T* nonComp1Out = (NonCompSplit1T*) nonCompOut;
-      NonCompSplit2T* nonComp2Out = (NonCompSplit2T*) nonCompOut;
+      NonCompSplit1T* nonCompOut1 = (NonCompSplit1T*) nonCompOut;
+      NonCompSplit2T* nonCompOut2 = (NonCompSplit2T*) nonCompOut;
       if (FTI::getIfNonCompSplit())
-        nonComp2Out = (NonCompSplit2T*) (nonCompOut + roundUp(size, 16 / sizeof(NonCompSplit1T)));
+        nonCompOut2 = (NonCompSplit2T*) (nonCompOut1 + roundUp(size, 16 / sizeof(NonCompSplit1T)));
 
       for (uint32_t i = blockIdx.x * blockDim.x + threadIdx.x; i < size;
           i += gridDim.x * blockDim.x) {
@@ -124,9 +124,9 @@ struct UpdateCompAndHist<FloatType::kFloat64> {
         NonCompSplit2T nonComp2;
 
         UpdateCompAndHist<FT>::update(in[i], comps, nonComp1, nonComp2, warpHistogram2DArr);
-        nonComp1Out[i] = nonComp1;
+        nonCompOut1[i] = nonComp1;
         if (FTI::getIfNonCompSplit())
-          nonComp2Out[i] = nonComp2;
+          nonCompOut2[i] = nonComp2;
         
         for (int k = 0; k < FTI::getNumCompSegments(); k++) {
           compOuts[i + k*compDatasetStride] = comps[k];
@@ -169,7 +169,7 @@ struct SplitFloatAligned16 {
     NonCompSplit1T* nonCompOut1 = (NonCompSplit1T*)nonCompOut;
     NonCompSplit2T* nonCompOut2 = (NonCompSplit2T*)nonCompOut;
     if (FTI::getIfNonCompSplit()) {
-      nonCompOut2 = (NonCompSplit2T*) (nonCompOut + roundUp(size, 16 / sizeof(NonCompSplit1T)));
+      nonCompOut2 = (NonCompSplit2T*) (nonCompOut1 + roundUp(size, 16 / sizeof(NonCompSplit1T)));
     }
 
     const VecT* inV = (const VecT*)in;
@@ -294,7 +294,7 @@ __global__ void splitFloat(
 
   // +1 in order to force very common symbols that could overlap into different
   // banks between different warps
-  __shared__ uint32_t histogram[kWarps][kNumSymbols + 1 + roundUp(kNumSymbols + 1, 4)];
+  __shared__ uint32_t histogram[kWarps][MAX_NUM_COMP_OUTS * roundUp(kNumSymbols + 1, 4)];
 
 #pragma unroll
   for (int i = 0; i < kWarps; ++i) {
@@ -329,7 +329,7 @@ __global__ void splitFloat(
     *headerOut = h;
   }
 
-  auto curNonCompOut = (NonCompT*)(headerOut + 1);
+  auto curNonCompOut = (NonCompT*)(headerOut + 2);
 
   // How many bytes are before the point where we are 16 byte aligned?
   auto nonAlignedBytes = getAlignmentRoundUp<sizeof(uint4)>(curIn);
@@ -357,7 +357,7 @@ __global__ void splitFloat(
   // The count for the thread's bucket could be 0
   for (int k = 0; k < numHists; k++) {
     if (sums[k]) {
-      atomicAdd(&curHistsOut[threadIdx.x + histDatasetStride], sums[k]);
+      atomicAdd(&curHistsOut[threadIdx.x + k*histDatasetStride], sums[k]);
     }
   }
 }
@@ -421,8 +421,9 @@ struct FloatANSOutProvider {
   __host__ FloatANSOutProvider(
       OutProvider& outProvider,
       SizeProvider& sizeProvider,
-      uint32_t* offset)
-      : outProvider_(outProvider), sizeProvider_(sizeProvider), offset_(*offset) {}
+      uint32_t offset)
+      : outProvider_(outProvider), sizeProvider_(sizeProvider), offset_(offset) {
+      }
   
   __host__ FloatANSOutProvider(
       OutProvider& outProvider,
@@ -434,7 +435,7 @@ struct FloatANSOutProvider {
 
     // Increment the pointer to past the floating point data
     ((GpuFloatHeader*)p)->checkMagicAndVersion();
-    return p + offset_ + sizeof(GpuFloatHeader) +
+    return p + offset_ + sizeof(GpuFloatHeader) + sizeof(GpuFloatHeader2) +
         FTI::getUncompDataSize(sizeProvider_.getBatchSize(batch));
   }
 
@@ -443,7 +444,7 @@ struct FloatANSOutProvider {
 
     // Increment the pointer to past the floating point data
     ((GpuFloatHeader*)p)->checkMagicAndVersion();
-    return p + offset_ + sizeof(GpuFloatHeader) +
+    return p + offset_ + sizeof(GpuFloatHeader) + sizeof(GpuFloatHeader2) +
         FTI::getUncompDataSize(sizeProvider_.getBatchSize(batch));
   }
 
@@ -461,7 +462,7 @@ __global__ void setHeaderAndANSOutOffset(OutProvider outProvider,
       FloatANSOutProvider<FT, OutProvider, InProvider> outProviderANS, 
       uint32_t* ansOutOffset) {
   if (blockIdx.x == 0 && threadIdx.x == 0) {
-    auto headerOut = (GpuFloatHeader*) outProvider.getBatchStart(0);
+    auto headerOut = ((GpuFloatHeader2*) outProvider.getBatchStart(0)) + 1;
     ANSCoalescedHeader* ansHeader = (ANSCoalescedHeader*) outProviderANS.getBatchStart(0);
     *ansOutOffset = roundUp(ansHeader->getTotalCompressedSize(), 16);
     headerOut->setFirstCompSegmentBytes(*ansOutOffset);
@@ -499,6 +500,7 @@ void floatCompressDevice(
 
   auto tempOutSize_dev = res.alloc<uint32_t>(stream, numInBatch);
   auto ansOutOffset_dev = res.alloc<uint32_t>(stream, 4);
+  uint32_t* ansOutOffset_host = (uint32_t*) calloc(4, sizeof(uint32_t));
 
   // We calculate a histogram of the symbols to be compressed as part of
   // extracting the compressible symbol from the float
@@ -562,18 +564,17 @@ void floatCompressDevice(
     // data.
     // We need to increment the sizes by the uncompressed portion (header plus
     // uncompressed float data) with incOutputSizes
-#define RUN_ANS(FT, compSegment)                                            \
+uint32_t compSegment = 0; 
+#define RUN_ANS(FT, nCompSegments)                                          \
+  compSegment = 0;                                                          \
   do {                                                                      \
     auto inProviderANS = FloatANSInProvider<InProvider>(                    \
         toComp_dev.data() + compSegment *                                   \
                     roundUp(numInBatch * compRowStride, 16),                \
         compRowStride, inProvider);                                         \
                                                                             \
-    auto outProviderANS = (compSegment == 0) ?                              \
-      FloatANSOutProvider<FT, OutProvider, InProvider>(outProvider,         \
-                                                       inProvider) :        \
-      FloatANSOutProvider<FT, OutProvider, InProvider>(                     \
-        outProvider, inProvider, ansOutOffset_dev.data());                  \
+    auto outProviderANS = FloatANSOutProvider<FT, OutProvider, InProvider>( \
+      outProvider, inProvider, ansOutOffset_host[0]);                       \
                                                                             \
     uint32_t* outSizes = (compSegment == 0) ? outSize_dev :                 \
                               tempOutSize_dev.data();                       \
@@ -596,12 +597,15 @@ void floatCompressDevice(
         setHeaderAndANSOutOffset<InProvider, OutProvider, FT>               \
                                 <<<1, 1, 0, stream>>> (                     \
                      outProvider, outProviderANS, ansOutOffset_dev.data()); \
+        CUDA_VERIFY(cudaMemcpyAsync(ansOutOffset_host,                      \
+                  ansOutOffset_dev.data(), 4*sizeof(uint32_t),              \
+                  cudaMemcpyDeviceToHost, stream));                         \
     }                                                                       \
     else                                                                    \
         incOutputSizes2<<<divUp(numInBatch, 128), 128, 0,                   \
             stream>>>(outSize_dev, tempOutSize_dev.data(), numInBatch);     \
                                                                             \
-  } while (false)
+  } while (++compSegment < nCompSegments)
 
   // We have written the non-compressed portions of the floats into the output,
   // along with a header that indicates how many floats there are.
@@ -610,17 +614,16 @@ void floatCompressDevice(
 
   switch (config.floatType) {
     case FloatType::kFloat16:
-      RUN_ANS(FloatType::kFloat16, 0);
+      RUN_ANS(FloatType::kFloat16, 1);
       break;
     case FloatType::kBFloat16:
-      RUN_ANS(FloatType::kBFloat16, 0);
+      RUN_ANS(FloatType::kBFloat16, 1);
       break;
     case FloatType::kFloat32:
-      RUN_ANS(FloatType::kFloat32, 0);
+      RUN_ANS(FloatType::kFloat32, 1);
       break;
     case FloatType::kFloat64:
-      RUN_ANS(FloatType::kFloat64, 0);
-      RUN_ANS(FloatType::kFloat64, 1);
+      RUN_ANS(FloatType::kFloat64, 2);
       break;
     default:
       assert(false);
@@ -628,6 +631,8 @@ void floatCompressDevice(
   }
 
 #undef RUN_ANS
+
+ free(ansOutOffset_host);
 
   CUDA_TEST_ERROR();
 }

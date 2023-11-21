@@ -68,6 +68,57 @@ __device__ __forceinline__ uint32_t rotateRight(uint32_t v, uint32_t shift) {
   return out;
 }
 
+__device__ __forceinline__ uint64_t rotateLeft(uint64_t v, uint32_t shift) {
+  /* From documentation:
+    // 128-bit left shift; n < 32
+    // [r7,r6,r5,r4] = [r3,r2,r1,r0] << n
+    shf.l.clamp.b32  r7,r2,r3,n;
+    shf.l.clamp.b32  r6,r1,r2,n;
+    shf.l.clamp.b32  r5,r0,r1,n;
+    shl.b32          r4,r0,n;
+
+    Let v1 be the least-significant 32 bits of v and v2 be the most significant 32 bits.
+    then the most significant 64 bits of [v2, v1, v2, v1] << 1 are what we want.
+  */
+  uint32_t r7, r6, v1, v2;
+  v1 = v & 0xffffffff;
+  v2 = v >> 32;
+  asm("shf.l.clamp.b32 %0, %1, %2, %3;"
+      : "=r"(r7)
+      : "r"(v1), "r"(v2), "r"(shift));
+  asm("shf.l.clamp.b32 %0, %1, %2, %3;"
+      : "=r"(r6)
+      : "r"(v2), "r"(v1), "r"(shift));
+
+  uint64_t out = ((uint64_t) r6) + (((uint64_t) r7) << 32);
+  return out;
+}
+
+__device__ __forceinline__ uint64_t rotateRight(uint64_t v, uint32_t shift) {
+  /* From documentation:
+    // 128-bit right shift, arithmetic; n < 32
+    // [r7,r6,r5,r4] = [r3,r2,r1,r0] >> n
+    shf.r.clamp.b32  r4,r0,r1,n;
+    shf.r.clamp.b32  r5,r1,r2,n;
+    shf.r.clamp.b32  r6,r2,r3,n;
+    shr.s32          r7,r3,n;     // result is sign-extended
+
+    Let v1 be the least-significant 32 bits of v and v2 be the most significant 32 bits.
+    then the least significant 64 bits of [v2, v1, v2, v1] >> 1 are what we want.
+  */
+  uint32_t __align__(16) r4, r5, v1, v2;
+  v1 = v & 0xffffffff;
+  v2 = v >> 32;
+  asm("shf.r.clamp.b32 %0, %1, %2, %3;"
+      : "=r"(r4)
+      : "r"(v1), "r"(v2), "r"(shift));
+  asm("shf.r.clamp.b32 %0, %1, %2, %3;"
+      : "=r"(r5)
+      : "r"(v2), "r"(v1), "r"(shift));
+  uint64_t out = ((uint64_t) r4) + (((uint64_t) r5) << 32);
+  return out;
+}
+
 __device__ __forceinline__ int getLaneId() {
   int laneId;
   asm("mov.u32 %0, %%laneid;" : "=r"(laneId));

@@ -58,14 +58,6 @@ struct __align__(16) GpuFloatHeader {
     checksum = c;
   }
 
-  __host__ __device__ uint32_t getFirstCompSegmentBytes() const {
-    return firstCompSegmentBytes;
-  }
-
-  __host__ __device__ void setFirstCompSegmentBytes(uint32_t b) {
-    firstCompSegmentBytes = b;
-  }
-
   // (16: magic)(16: version)
   uint32_t magicAndVersion;
 
@@ -77,6 +69,16 @@ struct __align__(16) GpuFloatHeader {
 
   // Optional checksum computed on the input data
   uint32_t checksum;
+};
+
+struct __align__(16) GpuFloatHeader2 {
+  __host__ __device__ uint32_t getFirstCompSegmentBytes() const {
+    return firstCompSegmentBytes;
+  }
+
+  __host__ __device__ void setFirstCompSegmentBytes(uint32_t b) {
+    firstCompSegmentBytes = b;
+  }
 
   // Number of bytes in the first segment of compressed data (for Float64 where
   // there are two different segments of compressed data)
@@ -87,7 +89,8 @@ struct __align__(16) GpuFloatHeader {
   uint64_t unusedTwo;
 };
 
-static_assert(sizeof(GpuFloatHeader) == 32, "");
+static_assert(sizeof(GpuFloatHeader) == 16, "");
+static_assert(sizeof(GpuFloatHeader2) == 16, "");
 
 struct __align__(16) uint64x2 {
   uint64_t x[2];
@@ -296,7 +299,7 @@ struct FloatTypeInfo<FloatType::kFloat64> {
   using NonCompVecSplit2T = uint16x2;
 
   static __device__ void split(WordT in, CompT* comp, NonCompT& nonComp) {
-    auto v = rotateLeft(in, 1);
+    uint64_t v = rotateLeft(in, 1);
     comp[0] = v >> 56;
     comp[1] = (v >> 48) & 0xffU;
 
