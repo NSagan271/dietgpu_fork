@@ -175,7 +175,7 @@ void runBatchPointerTest(
 
   auto compConfig =
       FloatCompressConfig(FT, ANSCodecConfig(probBits), false, true);
-  printf("data compress config\n");
+  
   floatCompress(
       res,
       compConfig,
@@ -185,8 +185,7 @@ void runBatchPointerTest(
       encPtrs.data(),
       outBatchSize_dev.data(),
       stream);
-
-  printf("data compress\n");
+  
   // Decode data
   auto dec_dev = res.alloc<typename FTI::WordT>(stream, totalSize);
 
@@ -202,27 +201,30 @@ void runBatchPointerTest(
   auto outSuccess_dev = res.alloc<uint8_t>(stream, numInBatch);
   auto outSize_dev = res.alloc<uint32_t>(stream, numInBatch);
 
-  // auto decompConfig =
-  //     FloatDecompressConfig(FT, ANSCodecConfig(probBits), false, true);
+  auto decompConfig =
+      FloatDecompressConfig(FT, ANSCodecConfig(probBits), false, true);
 
-  // floatDecompress(
-  //     res,
-  //     decompConfig,
-  //     numInBatch,
-  //     (const void**)encPtrs.data(),
-  //     decPtrs.data(),
-  //     batchSizes.data(),
-  //     outSuccess_dev.data(),
-  //     outSize_dev.data(),
-  //     stream);
+  // printf("data compress config\n");
+  // printf("data compress\n");
 
-  // auto outSuccess = outSuccess_dev.copyToHost(stream);
-  // auto outSize = outSize_dev.copyToHost(stream);
+  floatDecompress(
+      res,
+      decompConfig,
+      numInBatch,
+      (const void**)encPtrs.data(),
+      decPtrs.data(),
+      batchSizes.data(),
+      outSuccess_dev.data(),
+      outSize_dev.data(),
+      stream);
 
-  // for (int i = 0; i < outSuccess.size(); ++i) {
-  //   EXPECT_TRUE(outSuccess[i]);
-  //   EXPECT_EQ(outSize[i], batchSizes[i]);
-  // }
+  auto outSuccess = outSuccess_dev.copyToHost(stream);
+  auto outSize = outSize_dev.copyToHost(stream);
+
+  for (int i = 0; i < outSuccess.size(); ++i) {
+    EXPECT_TRUE(outSuccess[i]);
+    EXPECT_EQ(outSize[i], batchSizes[i]);
+  }
 
   // auto dec = dec_dev.copyToHost(stream);
 
@@ -286,22 +288,25 @@ TEST(FloatTest, Batch) {
   auto res = makeStackMemory();
 
   // // Note to Mingfei: the first function call works...
+  // runBatchPointerTest(res, FloatType::kFloat64, 9, 3);
+  // std::cout << "HI" << std::endl;
+  // // ... and the second has a misaligned address error in splitFloat (GpuFloatCompress.cuh)
+  // runBatchPointerTest(res, FloatType::kFloat64, 9, 3);
   // runBatchPointerTest(res, FloatType::kFloat64, 9, 3, 16);
-  // ... and the second has a misaligned address error in splitFloat (GpuFloatCompress.cuh)
-  runBatchPointerTest(res, FloatType::kFloat64, 9, 3, 3);
 
-  // for (auto ft :
-  //     //  {FloatType::kFloat16, FloatType::kBFloat16, FloatType::kFloat32, FloatType::kFloat64}) {
-  //         {FloatType::kFloat64}) {
-  //   for (auto probBits : {9, 10}) {
-  //     for (auto numInBatch : {1, 3, 16, 23}) {
-  //       runBatchPointerTest(res, ft, probBits, numInBatch);
-  //       // Also test the case where there is uniform 16 byte alignment across
-  //       // all batches
-  //       runBatchPointerTest(res, ft, probBits, numInBatch, 16);
-  //     }
-  //   }
-  // }
+  for (auto ft :
+        {FloatType::kFloat32}) {
+        //    {FloatType::kFloat64}) {
+      //  {FloatType::kFloat16, FloatType::kBFloat16, FloatType::kFloat32, FloatType::kFloat64}) {
+    for (auto probBits : {9, 10}) {
+      for (auto numInBatch : {1, 3, 16, 23}) {
+        runBatchPointerTest(res, ft, probBits, numInBatch);
+        // Also test the case where there is uniform 16 byte alignment across
+        // all batches
+        runBatchPointerTest(res, ft, probBits, numInBatch, 16);
+      }
+    }
+  }
 }
 
 // TEST(FloatTest, LargeBatch) {
@@ -322,33 +327,6 @@ TEST(FloatTest, Batch) {
 //   auto res = makeStackMemory();
 
 //   for (auto ft : {FloatType::kFloat16, FloatType::kBFloat16, FloatType::kFloat32, FloatType::kFloat64}) {
-//     for (auto probBits : {9, 10}) {
-//       runBatchPointerTest(res, ft, probBits, {1});
-//       runBatchPointerTest(res, ft, probBits, {13, 1});
-//       runBatchPointerTest(res, ft, probBits, {12345, 1, 8083, 1, 17});
-//     }
-//   }
-// }
-
-
-// TEST(FloatTest, LargeBatch) {
-//   auto res = makeStackMemory();
-
-//   auto batchSizes = std::vector<uint32_t>(256);
-//   for (auto& v : batchSizes) {
-//     v = 512 * 1024;
-//   }
-
-//   for (auto ft :
-//        {FloatType::kFloat64}) {
-//     runBatchPointerTest(res, ft, 10, batchSizes);
-//   }
-// }
-
-// TEST(FloatTest, BatchSize1) {
-//   auto res = makeStackMemory();
-
-//   for (auto ft : {FloatType::kFloat64}) {
 //     for (auto probBits : {9, 10}) {
 //       runBatchPointerTest(res, ft, probBits, {1});
 //       runBatchPointerTest(res, ft, probBits, {13, 1});
