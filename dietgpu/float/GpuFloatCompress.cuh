@@ -512,7 +512,7 @@ void floatCompressDevice(
   CUDA_VERIFY(cudaMemsetAsync(
       histograms_dev.data(),
       0,
-      sizeof(uint32_t) * numInBatch * kNumSymbols,
+      sizeof(uint32_t) * roundUp(numInBatch * kNumSymbols, 4) * MAX_NUM_COMP_OUTS,
       stream));
 
   CUDA_VERIFY(cudaMemsetAsync(
@@ -612,7 +612,7 @@ uint32_t compSegment = 0;
                                     stream>>> ( outProvider, outProviderANS,\
                                     ansOutOffset_dev.data(), numInBatch);   \
     }                                                                       \
-    else                                                                    \
+    else if (false)                                                                   \
         incOutputSizes2<<<divUp(numInBatch, 128), 128, 0,                   \
             stream>>>(outSize_dev, tempOutSize_dev.data(), numInBatch);     \
                                                                             \
@@ -635,7 +635,7 @@ uint32_t compSegment = 0;
       RUN_ANS(FloatType::kFloat32, 1);
       break;
     case FloatType::kFloat64:
-      RUN_ANS(FloatType::kFloat64, 1);
+      RUN_ANS(FloatType::kFloat64, 2);
       break;
     default:
       assert(false);
