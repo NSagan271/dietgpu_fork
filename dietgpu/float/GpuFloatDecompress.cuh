@@ -20,6 +20,7 @@
 #include <sstream>
 #include <vector>
 
+#define MAX_NUM_COMP_OUTS 2
 namespace dietgpu {
 
 template <FloatType FT, int Threads>
@@ -350,6 +351,40 @@ struct FloatANSProvider {
   InProvider inProvider_;
 };
 
+template <FloatType FT, typename InProvider>
+struct FloatANSProviderOffset {
+  using FTI = FloatTypeInfo<FT>;
+
+  __host__ FloatANSProviderOffset(InProvider& provider, uint32_t* offsets) : inProvider_(provider), offsets_(offsets) {}
+
+  __device__ void* getBatchStart(uint32_t batch) {
+    uint8_t* p = (uint8_t*)inProvider_.getBatchStart(batch);
+
+    // This is the first place that touches the header
+    GpuFloatHeader h = *((GpuFloatHeader*)p);
+    h.checkMagicAndVersion();
+    assert(FT == h.getFloatType());
+
+    // Increment the pointer to past the floating point data
+    return p + offsets_[batch] + sizeof(GpuFloatHeader) + sizeof(GpuFloatHeader2) + FTI::getUncompDataSize(h.size);
+  }
+
+  __device__ const void* getBatchStart(uint32_t batch) const {
+    const uint8_t* p = (const uint8_t*)inProvider_.getBatchStart(batch);
+
+    // This is the first place that touches the header
+    GpuFloatHeader h = *((const GpuFloatHeader*)p);
+    h.checkMagicAndVersion();
+    assert(FT == h.getFloatType());
+
+    // Increment the pointer to past the floating point data
+    return p + offsets_[batch] + sizeof(GpuFloatHeader) + sizeof(GpuFloatHeader2) + FTI::getUncompDataSize(h.size);
+  }
+
+  InProvider inProvider_;
+  uint32_t* offsets_;
+};
+
 template <FloatType FT, int N>
 struct FloatANSProviderInline {
   using FTI = FloatTypeInfo<FT>;
@@ -562,6 +597,20 @@ struct FloatOutProviderInline {
   uint32_t outCapacity_[N];
 };
 
+
+template <typename InProvider, FloatType FT>
+__global__ void setHeaderAndANSOutOffset(InProvider inProvider, 
+      FloatANSProviderOffset<FT, InProvider> inProviderANS, 
+      uint32_t* ansOutOffset, uint32_t numInBatch) {
+  uint32_t batch = blockIdx.x * blockDim.x + threadIdx.x;
+  if (batch < numInBatch) {
+    auto headerIn = ((GpuFloatHeader2*) inProvider.getBatchStart(batch)) + 1;
+    ANSCoalescedHeader* ansHeader = (ANSCoalescedHeader*) inProviderANS.getBatchStart(batch);
+    ansOutOffset[batch] = roundUp(ansHeader->getTotalCompressedSize(), 16);
+    headerIn->setFirstCompSegmentBytes(ansOutOffset[batch]);
+  }
+}
+
 template <typename InProvider, typename OutProvider>
 FloatDecompressStatus floatDecompressDevice(
     StackDeviceMemory& res,
@@ -579,47 +628,44 @@ FloatDecompressStatus floatDecompressDevice(
   // We can perform decoding in a single pass if all input data is 16 byte
   // aligned
   if (config.is16ByteAligned) {
-    //
-    // Fused kernel: perform decompression in a single pass
-    //
+//     //
+//     // Fused kernel: perform decompression in a single pass
+//     //
 
-#define RUN_FUSED(FT)                                                     \
-  do {                                                                    \
-    auto inProviderANS = FloatANSProvider<FT, InProvider>(inProvider);    \
-    auto outProviderANS =                                                 \
-        FloatOutProvider<InProvider, OutProvider, FT, kDefaultBlockSize>( \
-            inProvider, outProvider);                                     \
-                                                                          \
-    ansDecodeBatch(                                                       \
-        res,                                                              \
-        config.ansConfig,                                                 \
-        numInBatch,                                                       \
-        inProviderANS,                                                    \
-        outProviderANS,                                                   \
-        outSuccess_dev,                                                   \
-        outSize_dev,                                                      \
-        stream);                                                          \
-  } while (false)
+// #define RUN_FUSED(FT)                                                     \
+//   do {                                                                    \
+//     auto inProviderANS = FloatANSProvider<FT, InProvider>(inProvider);    \
+//     auto outProviderANS =                                                 \
+//         FloatOutProvider<InProvider, OutProvider, FT, kDefaultBlockSize>( \
+//             inProvider, outProvider);                                     \
+//                                                                           \
+//     ansDecodeBatch(                                                       \
+//         res,                                                              \
+//         config.ansConfig,                                                 \
+//         numInBatch,                                                       \
+//         inProviderANS,                                                    \
+//         outProviderANS,                                                   \
+//         outSuccess_dev,                                                   \
+//         outSize_dev,                                                      \
+//         stream);                                                          \
+//   } while (false)
 
-    switch (config.floatType) {
-      case FloatType::kFloat16:
-        RUN_FUSED(FloatType::kFloat16);
-        break;
-      case FloatType::kBFloat16:
-        RUN_FUSED(FloatType::kBFloat16);
-        break;
-      case FloatType::kFloat32:
-        RUN_FUSED(FloatType::kFloat32);
-        break;
-      case FloatType::kFloat64:
-        RUN_FUSED(FloatType::kFloat64);
-        break;
-      default:
-        CHECK(false);
-        break;
-    }
+//     switch (config.floatType) {
+//       case FloatType::kFloat16:
+//         RUN_FUSED(FloatType::kFloat16);
+//         break;
+//       case FloatType::kBFloat16:
+//         RUN_FUSED(FloatType::kBFloat16);
+//         break;
+//       case FloatType::kFloat32:
+//         RUN_FUSED(FloatType::kFloat32);
+//         break;
+//       default:
+//         CHECK(false);
+//         break;
+//     }
 
-#undef RUN_FUSED
+// #undef RUN_FUSED
   }
 
   else {
@@ -633,17 +679,18 @@ FloatDecompressStatus floatDecompressDevice(
     // vectorization
     uint32_t maxCapacityAligned = roundUp(maxCapacity, sizeof(uint4));
 
-    auto exp_dev = res.alloc<uint8_t>(stream, numInBatch * maxCapacityAligned);
-
-#define RUN_DECODE(FT)                                                    \
+    auto exp_dev = res.alloc<uint8_t>(stream, roundUp(numInBatch * maxCapacityAligned, 16) * MAX_NUM_COMP_OUTS);
+    auto ansOutOffset_dev = res.alloc<uint32_t>(stream, numInBatch);
+    uint32_t compSegment = 0; 
+#define RUN_DECODE(FT, nCompSegments)                                                    \
+compSegment = 0;                                                          \
   do {                                                                    \
-    using InProviderANS = FloatANSProvider<FT, InProvider>;               \
-    auto inProviderANS = InProviderANS(inProvider);                       \
+    using InProviderANS = FloatANSProviderOffset<FT, InProvider>;               \
+    auto inProviderANS = InProviderANS(inProvider, ansOutOffset_dev.data());                       \
                                                                           \
     using OutProviderANS = BatchProviderStride;                           \
     auto outProviderANS = OutProviderANS(                                 \
-        exp_dev.data(), maxCapacityAligned, maxCapacityAligned);          \
-                                                                          \
+        exp_dev.data() + compSegment * roundUp(numInBatch * maxCapacityAligned, 16), maxCapacityAligned, maxCapacityAligned);          \
     ansDecodeBatch(                                                       \
         res,                                                              \
         config.ansConfig,                                                 \
@@ -676,20 +723,20 @@ FloatDecompressStatus floatDecompressDevice(
             outProvider,                                                  \
             outSuccess_dev,                                               \
             outSize_dev);                                                 \
-  } while (false)
+  } while (++compSegment < nCompSegments)
 
     switch (config.floatType) {
       case FloatType::kFloat16:
-        RUN_DECODE(FloatType::kFloat16);
+        RUN_DECODE(FloatType::kFloat16, 1);
         break;
       case FloatType::kBFloat16:
-        RUN_DECODE(FloatType::kBFloat16);
+        RUN_DECODE(FloatType::kBFloat16, 1);
         break;
       case FloatType::kFloat32:
-        RUN_DECODE(FloatType::kFloat32);
+        RUN_DECODE(FloatType::kFloat32, 1);
         break;
       case FloatType::kFloat64:
-        RUN_DECODE(FloatType::kFloat64);
+        RUN_DECODE(FloatType::kFloat64, 2);
         break;
       default:
         CHECK(false);
@@ -744,3 +791,11 @@ FloatDecompressStatus floatDecompressDevice(
 }
 
 } // namespace dietgpu
+
+
+// if(compSegment==10){                                                                      \
+// setHeaderAndANSOutOffset<InProvider, FT>                              \
+//                           <<<divUp(numInBatch, 128), 128, 0,          \
+//                               stream>>> (inProvider, inProviderANS,   \
+//                               ansOutOffset_dev.data(), numInBatch);   \
+// }                                                                     \
