@@ -304,7 +304,7 @@ TEST(FloatTest, Batch) {
         // {FloatType::kFloat16}) {
         //    {FloatType::kFloat64}) {
       //  {FloatType::kFloat16, FloatType::kBFloat16, FloatType::kFloat32, FloatType::kFloat64}) {
-        {FloatType::kFloat64}) {
+        {FloatType::kFloat32}) {
     for (auto probBits : {9, 10}) {
       for (auto numInBatch : {1, 3, 16, 23}) {
         runBatchPointerTest(res, ft, probBits, numInBatch);

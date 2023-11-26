@@ -685,45 +685,53 @@ FloatDecompressStatus floatDecompressDevice(
 #define RUN_DECODE(FT, nCompSegments)                                                    \
 compSegment = 0;                                                          \
   do {                                                                    \
-    using InProviderANS = FloatANSProviderOffset<FT, InProvider>;               \
-    auto inProviderANS = InProviderANS(inProvider, ansOutOffset_dev.data());                       \
-                                                                          \
-    using OutProviderANS = BatchProviderStride;                           \
-    auto outProviderANS = OutProviderANS(                                 \
-        exp_dev.data() + compSegment * roundUp(numInBatch * maxCapacityAligned, 16), maxCapacityAligned, maxCapacityAligned);          \
-    ansDecodeBatch(                                                       \
-        res,                                                              \
-        config.ansConfig,                                                 \
-        numInBatch,                                                       \
-        inProviderANS,                                                    \
-        outProviderANS,                                                   \
-        outSuccess_dev,                                                   \
-        outSize_dev,                                                      \
-        stream);                                                          \
-                                                                          \
-    constexpr int kThreads = 256;                                         \
-    auto& props = getCurrentDeviceProperties();                           \
-    int maxBlocksPerSM = 0;                                               \
-    CUDA_VERIFY(cudaOccupancyMaxActiveBlocksPerMultiprocessor(            \
-        &maxBlocksPerSM,                                                  \
-        joinFloat<OutProviderANS, InProvider, OutProvider, FT, kThreads>, \
-        kThreads,                                                         \
-        0));                                                              \
-    uint32_t maxGrid = maxBlocksPerSM * props.multiProcessorCount;        \
-    uint32_t perBatchGrid = divUp(maxGrid, numInBatch);                   \
-    if ((perBatchGrid * numInBatch > maxGrid) && perBatchGrid > 1) {      \
-      perBatchGrid -= 1;                                                  \
-    }                                                                     \
-    auto grid = dim3(perBatchGrid, numInBatch);                           \
-                                                                          \
-    joinFloat<OutProviderANS, InProvider, OutProvider, FT, kThreads>      \
-        <<<grid, kThreads, 0, stream>>>(                                  \
-            outProviderANS,                                               \
-            inProvider,                                                   \
-            outProvider,                                                  \
-            outSuccess_dev,                                               \
-            outSize_dev);                                                 \
-  } while (++compSegment < nCompSegments)
+      using InProviderANS = FloatANSProviderOffset<FT, InProvider>;               \
+      auto inProviderANS = InProviderANS(inProvider, ansOutOffset_dev.data());                       \
+                                                                            \
+      using OutProviderANS = BatchProviderStride;                           \
+      auto outProviderANS = OutProviderANS(                                 \
+          exp_dev.data() + compSegment * roundUp(numInBatch * maxCapacityAligned, 16), maxCapacityAligned, maxCapacityAligned);          \
+      ansDecodeBatch(                                                       \
+          res,                                                              \
+          config.ansConfig,                                                 \
+          numInBatch,                                                       \
+          inProviderANS,                                                    \
+          outProviderANS,                                                   \
+          outSuccess_dev,                                                   \
+          outSize_dev,                                                      \
+          stream);                                                          \
+                                                                            \
+      if(compSegment==0){                                                   \
+      setHeaderAndANSOutOffset<InProvider, FT>                              \
+                                <<<divUp(numInBatch, 128), 128, 0,          \
+                                    stream>>> (inProvider, inProviderANS,   \
+                                    ansOutOffset_dev.data(), numInBatch);   \
+      }                                                                     \
+    if (compSegment == nCompSegments-1){                                    \
+      constexpr int kThreads = 256;                                         \
+      auto& props = getCurrentDeviceProperties();                           \
+      int maxBlocksPerSM = 0;                                               \
+      CUDA_VERIFY(cudaOccupancyMaxActiveBlocksPerMultiprocessor(            \
+          &maxBlocksPerSM,                                                  \
+          joinFloat<OutProviderANS, InProvider, OutProvider, FT, kThreads>, \
+          kThreads,                                                         \
+          0));                                                              \
+      uint32_t maxGrid = maxBlocksPerSM * props.multiProcessorCount;        \
+      uint32_t perBatchGrid = divUp(maxGrid, numInBatch);                   \
+      if ((perBatchGrid * numInBatch > maxGrid) && perBatchGrid > 1) {      \
+        perBatchGrid -= 1;                                                  \
+      }                                                                     \
+      auto grid = dim3(perBatchGrid, numInBatch);                           \
+                                                                            \
+      joinFloat<OutProviderANS, InProvider, OutProvider, FT, kThreads>      \
+          <<<grid, kThreads, 0, stream>>>(                                  \
+              outProviderANS,                                               \
+              inProvider,                                                   \
+              outProvider,                                                  \
+              outSuccess_dev,                                               \
+              outSize_dev);        \
+    }                                         \
+  } while(++compSegment < nCompSegments);                               \
 
     switch (config.floatType) {
       case FloatType::kFloat16:
@@ -793,9 +801,4 @@ compSegment = 0;                                                          \
 } // namespace dietgpu
 
 
-// if(compSegment==10){                                                                      \
-// setHeaderAndANSOutOffset<InProvider, FT>                              \
-//                           <<<divUp(numInBatch, 128), 128, 0,          \
-//                               stream>>> (inProvider, inProviderANS,   \
-//                               ansOutOffset_dev.data(), numInBatch);   \
-// }                                                                     \
+                                                             \
