@@ -14,5 +14,14 @@ float64, shifted left by 1:
 
 c... (1B) d... (1B) n... (4B) m... (2B)
 
-Header (32B), nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn... (4B * number of floats), mmmmmmmmmmmmmmmmmmmmmmm... (2B * num)
+Header1 (16B), Header2 (16B) nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn... (4B * number of floats), mmmmmmmmmmmmmmmmmmmmmmm... (2B * num)
 ANS compressed section for c (firstCompSegmentBytes in header), ANS compressed section of d
+
+
+Decompression:
+
+input 
+
+Header1 (16B), Header2 (16B) nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn... (4B * number of floats), mmmmmmmmmmmmmmmmmmmmmmm... (2B * num)
+ANS compressed section for c (firstCompSegmentBytes in header), ANS compressed section of d
+

@@ -143,7 +143,7 @@ void runBatchPointerTest(
   uint32_t totalSize = 0;
   uint32_t maxSize = 0;
   for (auto v : batchSizes) {
-    printf("batchSizes %d", v);
+    //printf("batchSizes %d", v);
     totalSize += v;
     maxSize = std::max(maxSize, v);
   }
@@ -221,10 +221,10 @@ void runBatchPointerTest(
   auto outSuccess = outSuccess_dev.copyToHost(stream);
   auto outSize = outSize_dev.copyToHost(stream);
 
-  // for (int i = 0; i < outSuccess.size(); ++i) {
-  //   EXPECT_TRUE(outSuccess[i]);
-  //   EXPECT_EQ(outSize[i], batchSizes[i]);
-  // }
+  for (int i = 0; i < outSuccess.size(); ++i) {
+    EXPECT_TRUE(outSuccess[i]);
+    EXPECT_EQ(outSize[i], batchSizes[i]);
+  }
 
   // auto dec = dec_dev.copyToHost(stream);
 
