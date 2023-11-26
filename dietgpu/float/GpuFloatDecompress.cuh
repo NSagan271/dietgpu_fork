@@ -624,7 +624,7 @@ FloatDecompressStatus floatDecompressDevice(
 
   // We can perform decoding in a single pass if all input data is 16 byte
   // aligned
-  if (config.is16ByteAligned) {
+  if (false && config.is16ByteAligned) {
 //     //
 //     // Fused kernel: perform decompression in a single pass
 //     //
