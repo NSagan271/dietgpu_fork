@@ -611,6 +611,16 @@ __global__ void setHeaderAndANSOutOffset(InProvider inProvider,
   }
 }
 
+template <FloatType FT, typename OutProvider>
+__global__ void
+incOutputSizes(OutProvider OutProvider, uint32_t* outSize, uint32_t numInBatch) {
+  uint32_t batch = blockIdx.x * blockDim.x + threadIdx.x;
+  if (batch < numInBatch) {
+    outSize[batch] += sizeof(GpuFloatHeader) + sizeof(GpuFloatHeader2) +
+        FloatTypeInfo<FT>::getUncompDataSize(OutProvider.getBatchSize(batch));
+  }
+}
+
 template <typename InProvider, typename OutProvider>
 FloatDecompressStatus floatDecompressDevice(
     StackDeviceMemory& res,
@@ -702,6 +712,8 @@ compSegment = 0;                                                          \
           stream);                                                          \
                                                                             \
       if(compSegment==0){                                                   \
+        incOutputSizes<FT><<<divUp(numInBatch, 128), 128, 0,                \
+            stream>>>(outProvider, outSize_dev, numInBatch);                \
       setHeaderAndANSOutOffset<InProvider, FT>                              \
                                 <<<divUp(numInBatch, 128), 128, 0,          \
                                     stream>>> (inProvider, inProviderANS,   \
@@ -729,9 +741,9 @@ compSegment = 0;                                                          \
               inProvider,                                                   \
               outProvider,                                                  \
               outSuccess_dev,                                               \
-              outSize_dev);        \
-    }                                         \
-  } while(++compSegment < nCompSegments);                               \
+              outSize_dev);                                                 \
+    }                                                                       \
+  } while(++compSegment < nCompSegments);                                   \
 
     switch (config.floatType) {
       case FloatType::kFloat16:
