@@ -66,6 +66,35 @@ struct JoinFloatNonAligned<FloatType::kFloat32, Threads> {
   }
 };
 
+template <int Threads>
+struct JoinFloatNonAligned<FloatType::kFloat64, Threads> {
+  static __device__ void join(
+      const typename FloatTypeInfo<
+          FloatType::kFloat32>::CompT* __restrict__ compIn,
+      const typename FloatTypeInfo<
+          FloatType::kFloat32>::NonCompT* __restrict__ nonCompIn,
+      uint32_t size,
+      typename FloatTypeInfo<FloatType::kFloat32>::WordT* __restrict__ out) {
+    using FTI = FloatTypeInfo<FloatType::kFloat32>;
+    using CompT = typename FTI::CompT;
+    using NonCompT = typename FTI::NonCompT;
+
+    // Where the low order 2 bytes are read
+    uint16_t* nonComp2In = (uint16_t*)nonCompIn;
+
+    // Where the high order byte is read
+    uint8_t* nonComp1In = (uint8_t*)(nonComp2In + roundUp(size, 8));
+
+    for (uint32_t i = blockIdx.x * Threads + threadIdx.x; i < size;
+         i += gridDim.x * Threads) {
+      uint32_t nc =
+          (uint32_t(nonComp1In[i]) * 65536U) + uint32_t(nonComp2In[i]);
+
+      out[i] = FTI::join(&compIn[i], nc);
+    }
+  }
+};
+
 template <FloatType FT, int Threads>
 struct JoinFloatAligned16 {
   static __device__ void join(
@@ -313,7 +342,7 @@ __global__ void joinFloat(
     return;
   }
 
-  auto curNonCompIn = (const NonCompT*)(curHeaderIn + 1);
+  auto curNonCompIn = (const NonCompT*)(curHeaderIn + 2);
 
   JoinFloatImpl<FT, Threads>::join(curCompIn, curNonCompIn, curSize, curOut);
 }
