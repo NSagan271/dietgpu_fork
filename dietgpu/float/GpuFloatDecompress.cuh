@@ -26,40 +26,13 @@ namespace dietgpu {
 template <FloatType FT, int Threads>
 struct JoinFloatNonAligned {
   static __device__ void join(
-      const typename FloatTypeInfo<FT>::CompT* __restrict__ compIns,
+      const typename FloatTypeInfo<FT>::CompT* __restrict__ compIn,
       const typename FloatTypeInfo<FT>::NonCompT* __restrict__ nonCompIn,
       uint32_t size,
-      typename FloatTypeInfo<FT>::WordT* __restrict__ out,
-      uint32_t compDatasetStride) {
+      typename FloatTypeInfo<FT>::WordT* __restrict__ out) {
     for (uint32_t i = blockIdx.x * Threads + threadIdx.x; i < size;
          i += gridDim.x * Threads) {
-      out[i] = FloatTypeInfo<FT>::join(&compIns[i], nonCompIn[i]);
-    }
-  }
-};
-
-
-template <int Threads>
-struct JoinFloatNonAligned<FloatType::kFloat64, Threads> {
-  static __device__ void join(
-      const typename FloatTypeInfo<FloatType::kFloat64>::CompT* __restrict__ compIns,
-      const typename FloatTypeInfo<FloatType::kFloat64>::NonCompT* __restrict__ nonCompIn,
-      uint32_t size,
-      typename FloatTypeInfo<FloatType::kFloat64>::WordT* __restrict__ out,
-      uint32_t compDatasetStride) {
-    using FTI = FloatTypeInfo<FloatType::kFloat64>;
-    using CompT = typename FTI::CompT;
-    int numCompSegments = FTI::getNumCompSegments();
-    for (uint32_t i = blockIdx.x * Threads + threadIdx.x; i < size;
-         i += gridDim.x * Threads) {
-
-      CompT comps[MAX_NUM_COMP_OUTS];
-
-      for (int k = 0; k < numCompSegments; k++) {
-        comps[k] = compIns[i+k*compDatasetStride];
-        // compDatasetStride
-      }
-      out[i] = FloatTypeInfo<FloatType::kFloat64>::join(comps, nonCompIn[i]);
+      out[i] = FloatTypeInfo<FT>::join(&compIn[i], nonCompIn[i]);
     }
   }
 };
@@ -68,12 +41,11 @@ template <int Threads>
 struct JoinFloatNonAligned<FloatType::kFloat32, Threads> {
   static __device__ void join(
       const typename FloatTypeInfo<
-          FloatType::kFloat32>::CompT* __restrict__ compIns,
+          FloatType::kFloat32>::CompT* __restrict__ compIn,
       const typename FloatTypeInfo<
           FloatType::kFloat32>::NonCompT* __restrict__ nonCompIn,
       uint32_t size,
-      typename FloatTypeInfo<FloatType::kFloat32>::WordT* __restrict__ out,
-      uint32_t compDatasetStride) {
+      typename FloatTypeInfo<FloatType::kFloat32>::WordT* __restrict__ out) {
     using FTI = FloatTypeInfo<FloatType::kFloat32>;
     using CompT = typename FTI::CompT;
     using NonCompT = typename FTI::NonCompT;
@@ -89,7 +61,7 @@ struct JoinFloatNonAligned<FloatType::kFloat32, Threads> {
       uint32_t nc =
           (uint32_t(nonComp1In[i]) * 65536U) + uint32_t(nonComp2In[i]);
 
-      out[i] = FTI::join(&compIns[i], nc);
+      out[i] = FTI::join(&compIn[i], nc);
     }
   }
 };
@@ -126,37 +98,81 @@ struct JoinFloatNonAligned<FloatType::kFloat64, Threads> {
   }
 };
 
-template <int Threads>
-struct JoinFloatNonAligned<FloatType::kFloat64, Threads> {
-  static __device__ void join(
-      const typename FloatTypeInfo<
-          FloatType::kFloat64>::CompT* __restrict__ compIn,
-      const typename FloatTypeInfo<
-          FloatType::kFloat64>::CompT* __restrict__ compInFirstDataset,
-      const typename FloatTypeInfo<
-          FloatType::kFloat64>::NonCompT* __restrict__ nonCompIn,
-      uint32_t size,
-      typename FloatTypeInfo<FloatType::kFloat64>::WordT* __restrict__ out) {
-    using FTI = FloatTypeInfo<FloatType::kFloat64>;
-    using CompT = typename FTI::CompT;
-    using NonCompT = typename FTI::NonCompT;
-    
+// template <FloatType FT, int Threads>
+// struct JoinFloatAligned16 {
+//   static __device__ void join(
+//       const typename FloatTypeInfo<FT>::CompT* __restrict__ compIn,
+//       const typename FloatTypeInfo<FT>::NonCompT* __restrict__ nonCompIn,
+//       uint32_t size,
+//       typename FloatTypeInfo<FT>::WordT* __restrict__ out,
+//       uint32_t compDatasetStride) {
+//     using FTI = FloatTypeInfo<FT>;
 
-    // Where the low order 4 bytes are read
-    uint32_t* nonComp1In = (uint32_t*)nonCompIn;
+//     using WordT = typename FTI::WordT;
+//     using CompT = typename FTI::CompT;
+//     using NonCompT = typename FTI::NonCompT;
+//     using VecT = typename FTI::VecT;
+//     using CompVecT = typename FTI::CompVecT;
+//     using NonCompVecT = typename FTI::NonCompVecT;
 
-    // Where the high order 2 bytes are read
-    uint16_t* nonComp2In = (uint16_t*)(nonComp1In + roundUp(size, 4));
+//     constexpr int kOuterUnroll = 2;
+//     constexpr int kInnerUnroll = sizeof(VecT) / sizeof(WordT);
 
-    for (uint32_t i = blockIdx.x * Threads + threadIdx.x; i < size;
-         i += gridDim.x * Threads) {
-      uint64_t nc = (uint64_t(nonComp2In[i]) * 4294967296U) + uint64_t(nonComp1In[i]);
+//     const CompVecT* compInV = (const CompVecT*)compIn;
+//     const NonCompVecT* nonCompInV = (const NonCompVecT*)nonCompIn;
+//     VecT* outV = (VecT*)out;
 
-      CompT twoCompressedBytes[2] = {compInFirstDataset[i], compIn[i]};
-      out[i] = FTI::join(twoCompressedBytes, nc);
-    }
-  }
-};
+//     // Each block handles Threads * kOuterUnroll * kInnerUnroll inputs/outputs
+//     // at a time, or Threads * kOuterUnroll 16-byte words at a time
+
+//     constexpr int kWordsPerBlock = Threads * kOuterUnroll;
+//     constexpr int kFloatsPerBlock = kWordsPerBlock * kInnerUnroll;
+//     uint32_t fullBlocks = divDown(size, kFloatsPerBlock);
+
+//     // Handle by block
+//     uint32_t startBlock = blockIdx.x * kWordsPerBlock;
+//     compInV += startBlock + threadIdx.x;
+//     nonCompInV += startBlock + threadIdx.x;
+//     outV += startBlock + threadIdx.x;
+
+//     for (uint32_t b = blockIdx.x; b < fullBlocks; b += gridDim.x,
+//                   compInV += gridDim.x * kWordsPerBlock,
+//                   nonCompInV += gridDim.x * kWordsPerBlock,
+//                   outV += gridDim.x * kWordsPerBlock) {
+//       CompVecT comp[kOuterUnroll];
+//       NonCompVecT nonComp[kOuterUnroll];
+
+// #pragma unroll
+//       for (uint32_t i = 0; i < kOuterUnroll; ++i) {
+//         comp[i] = compInV[i * Threads];
+//         nonComp[i] = nonCompInV[i * Threads];
+//       }
+
+//       VecT v[kOuterUnroll];
+
+// #pragma unroll
+//       for (uint32_t i = 0; i < kOuterUnroll; ++i) {
+// #pragma unroll
+//         for (int j = 0; j < kInnerUnroll; ++j) {
+//           v[i].x[j] = FTI::join(&comp[i].x[j], nonComp[i].x[j]);
+//         }
+//       }
+
+// #pragma unroll
+//       for (uint32_t i = 0; i < kOuterUnroll; ++i) {
+//         outV[i * Threads] = v[i];
+//       }
+//     }
+
+//     // Handle last (partial) block
+//     for (uint32_t i =
+//              fullBlocks * kFloatsPerBlock + blockIdx.x * Threads + threadIdx.x;
+//          i < size;
+//          i += blockDim.x) {
+//       out[i] = FTI::join(&compIn[i], nonCompIn[i]);
+//     }
+//   }
+// };
 
 template <FloatType FT, int Threads>
 struct JoinFloatAligned16 {
@@ -255,11 +271,12 @@ template <int Threads>
 struct JoinFloatAligned16<FloatType::kFloat32, Threads> {
   static __device__ void join(
       const typename FloatTypeInfo<
-          FloatType::kFloat32>::CompT* __restrict__ compIns,
+          FloatType::kFloat32>::CompT* __restrict__ compIn,
       const typename FloatTypeInfo<
           FloatType::kFloat32>::NonCompT* __restrict__ nonCompIn,
       uint32_t size,
-      typename FloatTypeInfo<FloatType::kFloat32>::WordT* __restrict__ out) {
+      typename FloatTypeInfo<FloatType::kFloat32>::WordT* __restrict__ out,
+      uint32_t compDatasetStride) {
     using FTI = FloatTypeInfo<FloatType::kFloat32>;
 
     using WordT = typename FTI::WordT;
@@ -269,7 +286,7 @@ struct JoinFloatAligned16<FloatType::kFloat32, Threads> {
     constexpr int kOuterUnroll = 1;
     constexpr int kInnerUnroll = sizeof(uint32x4) / sizeof(uint32_t);
 
-    auto compInV = (const uint8x4*)compIns;
+    auto compInV = (const uint8x4*)compIn;
     auto nonCompIn2 = (const uint16_t*)nonCompIn;
     auto nonCompIn1 = (const uint8_t*)(nonCompIn2 + roundUp(size, 8));
 
@@ -341,7 +358,7 @@ struct JoinFloatAligned16<FloatType::kFloat32, Threads> {
       uint32_t nc1 = nonCompIn1[i];
       uint32_t nc = nc1 * 65536U + nc2;
 
-      out[i] = FTI::join(&compIns[i], nc);
+      out[i] = FTI::join(&compIn[i], nc);
     }
   }
 };
@@ -349,20 +366,21 @@ struct JoinFloatAligned16<FloatType::kFloat32, Threads> {
 template <FloatType FT, int Threads>
 struct JoinFloatImpl {
   static __device__ void join(
-      const typename FloatTypeInfo<FT>::CompT* compIns,
+      const typename FloatTypeInfo<FT>::CompT* compIn,
       const typename FloatTypeInfo<FT>::CompT* compInFirstDataset, // UNUSED
       const typename FloatTypeInfo<FT>::NonCompT* nonCompIn,
       uint32_t size,
       typename FloatTypeInfo<FT>::WordT* out,
       uint32_t compDatasetStride) {
     // compIn should always be aligned, as we decompress into temporary memory
-    auto compUnalignedBytes = getAlignmentRoundUp<sizeof(uint4)>(compIns);
+    auto compUnalignedBytes = getAlignmentRoundUp<sizeof(uint4)>(compIn);
     auto nonCompUnalignedBytes = getAlignmentRoundUp<sizeof(uint4)>(nonCompIn);
     auto outUnalignedBytes = getAlignmentRoundUp<sizeof(uint4)>(out);
+
     if (compUnalignedBytes || nonCompUnalignedBytes || outUnalignedBytes) {
-      JoinFloatNonAligned<FT, Threads>::join(compIns, nonCompIn, size, out, compDatasetStride);
+      JoinFloatNonAligned<FT, Threads>::join(compIn, nonCompIn, size, out);
     } else {
-      JoinFloatAligned16<FT, Threads>::join(compIns, nonCompIn, size, out, compDatasetStride);
+      JoinFloatAligned16<FT, Threads>::join(compIn, nonCompIn, size, out, compDatasetStride);
     }
   }
 };
@@ -378,7 +396,7 @@ struct JoinFloatImpl<FloatType::kFloat32, Threads> {
       uint32_t compDatasetStride) {
     // FIXME: implement vectorization
     JoinFloatNonAligned<FloatType::kFloat32, Threads>::join(
-        compIns, nonCompIn, size, out, compDatasetStride);
+        compIn, nonCompIn, size, out);
   }
 };
 
@@ -389,21 +407,8 @@ struct JoinFloatImpl<FloatType::kFloat64, Threads> {
       const typename FloatTypeInfo<FloatType::kFloat64>::CompT* compInFirstDataset,
       const typename FloatTypeInfo<FloatType::kFloat64>::NonCompT* nonCompIn,
       uint32_t size,
-      typename FloatTypeInfo<FloatType::kFloat64>::WordT* out) {
-    // FIXME: implement vectorization
-    JoinFloatNonAligned<FloatType::kFloat64, Threads>::join(
-        compIn, compInFirstDataset, nonCompIn, size, out);
-  }
-};
-
-template <int Threads>
-struct JoinFloatImpl<FloatType::kFloat64, Threads> {
-  static __device__ void join(
-      const typename FloatTypeInfo<FloatType::kFloat64>::CompT* compIn,
-      const typename FloatTypeInfo<FloatType::kFloat64>::CompT* compInFirstDataset,
-      const typename FloatTypeInfo<FloatType::kFloat64>::NonCompT* nonCompIn,
-      uint32_t size,
-      typename FloatTypeInfo<FloatType::kFloat64>::WordT* out) {
+      typename FloatTypeInfo<FloatType::kFloat64>::WordT* out,
+      uint32_t compDatasetStride) {
     // FIXME: implement vectorization
     JoinFloatNonAligned<FloatType::kFloat64, Threads>::join(
         compIn, compInFirstDataset, nonCompIn, size, out);
@@ -458,7 +463,7 @@ __global__ void joinFloat(
 
   auto curNonCompIn = (const NonCompT*)(curHeaderIn + 2);
 
-  JoinFloatImpl<FT, Threads>::join(curCompIn, curCompInFirstDataset, curNonCompIn, curSize, curOut);
+  JoinFloatImpl<FT, Threads>::join(curCompIn, curCompInFirstDataset, curNonCompIn, curSize, curOut, compDatasetStride);
 }
 
 template <FloatType FT, typename InProvider>
@@ -946,6 +951,3 @@ compSegment = 0;                                                          \
 }
 
 } // namespace dietgpu
-
-
-                                                             \
