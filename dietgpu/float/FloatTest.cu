@@ -228,17 +228,17 @@ void runBatchPointerTest(
 
   auto dec = dec_dev.copyToHost(stream);
 
-  for (int i = 0; i < orig.size(); ++i) {
-    if (orig[i] != dec[i]) {
-      printf(
-          "mismatch at %d / %d: 0x%08X 0x%08X\n",
-          i,
-          (int)orig.size(),
-          orig[i],
-          dec[i]);
-      break;
-    }
-  }
+  // for (int i = 0; i < orig.size(); ++i) {
+  //   if (orig[i] != dec[i]) {
+  //     printf(
+  //         "mismatch at %d / %d: 0x%08X 0x%08X\n",
+  //         i,
+  //         (int)orig.size(),
+  //         orig[i],
+  //         dec[i]);
+  //     break;
+  //   }
+  // }
 
   EXPECT_EQ(orig, dec);
 }
@@ -302,6 +302,7 @@ TEST(FloatTest, Batch) {
 
   for (auto ft :
        {FloatType::kFloat16, FloatType::kBFloat16, FloatType::kFloat32, FloatType::kFloat64}) {
+        // {FloatType::kFloat32}) {
     for (auto probBits : {9, 10}) {
       for (auto numInBatch : {1, 3, 16, 23}) {
         runBatchPointerTest(res, ft, probBits, numInBatch);
@@ -313,28 +314,28 @@ TEST(FloatTest, Batch) {
   }
 }
 
-// TEST(FloatTest, LargeBatch) {
-//   auto res = makeStackMemory();
+TEST(FloatTest, LargeBatch) {
+  auto res = makeStackMemory();
 
-//   auto batchSizes = std::vector<uint32_t>(256);
-//   for (auto& v : batchSizes) {
-//     v = 512 * 1024;
-//   }
+  auto batchSizes = std::vector<uint32_t>(256);
+  for (auto& v : batchSizes) {
+    v = 512 * 1024;
+  }
 
-//   for (auto ft :
-//        {FloatType::kFloat16, FloatType::kBFloat16, FloatType::kFloat32, FloatType::kFloat64}) {
-//     runBatchPointerTest(res, ft, 10, batchSizes);
-//   }
-// }
+  for (auto ft :
+       {FloatType::kFloat16, FloatType::kBFloat16, FloatType::kFloat32, FloatType::kFloat64}) {
+    runBatchPointerTest(res, ft, 10, batchSizes);
+  }
+}
 
-// TEST(FloatTest, BatchSize1) {
-//   auto res = makeStackMemory();
+TEST(FloatTest, BatchSize1) {
+  auto res = makeStackMemory();
 
-//   for (auto ft : {FloatType::kFloat16, FloatType::kBFloat16, FloatType::kFloat32, FloatType::kFloat64}) {
-//     for (auto probBits : {9, 10}) {
-//       runBatchPointerTest(res, ft, probBits, {1});
-//       runBatchPointerTest(res, ft, probBits, {13, 1});
-//       runBatchPointerTest(res, ft, probBits, {12345, 1, 8083, 1, 17});
-//     }
-//   }
-// }
+  for (auto ft : {FloatType::kFloat16, FloatType::kBFloat16, FloatType::kFloat32, FloatType::kFloat64}) {
+    for (auto probBits : {9, 10}) {
+      runBatchPointerTest(res, ft, probBits, {1});
+      runBatchPointerTest(res, ft, probBits, {13, 1});
+      runBatchPointerTest(res, ft, probBits, {12345, 1, 8083, 1, 17});
+    }
+  }
+}

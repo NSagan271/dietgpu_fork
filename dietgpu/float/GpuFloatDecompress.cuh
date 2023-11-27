@@ -94,6 +94,70 @@ struct JoinFloatNonAligned<FloatType::kFloat32, Threads> {
   }
 };
 
+template <int Threads>
+struct JoinFloatNonAligned<FloatType::kFloat64, Threads> {
+  static __device__ void join(
+      const typename FloatTypeInfo<
+          FloatType::kFloat64>::CompT* __restrict__ compIn,
+      const typename FloatTypeInfo<
+          FloatType::kFloat64>::CompT* __restrict__ compInFirstDataset,
+      const typename FloatTypeInfo<
+          FloatType::kFloat64>::NonCompT* __restrict__ nonCompIn,
+      uint32_t size,
+      typename FloatTypeInfo<FloatType::kFloat64>::WordT* __restrict__ out) {
+    using FTI = FloatTypeInfo<FloatType::kFloat64>;
+    using CompT = typename FTI::CompT;
+    using NonCompT = typename FTI::NonCompT;
+    
+
+    // Where the low order 4 bytes are read
+    uint32_t* nonComp1In = (uint32_t*)nonCompIn;
+
+    // Where the high order 2 bytes are read
+    uint16_t* nonComp2In = (uint16_t*)(nonComp1In + roundUp(size, 4));
+
+    for (uint32_t i = blockIdx.x * Threads + threadIdx.x; i < size;
+         i += gridDim.x * Threads) {
+      uint64_t nc = (uint64_t(nonComp2In[i]) * 4294967296U) + uint64_t(nonComp1In[i]);
+
+      CompT twoCompressedBytes[2] = {compInFirstDataset[i], compIn[i]};
+      out[i] = FTI::join(twoCompressedBytes, nc);
+    }
+  }
+};
+
+template <int Threads>
+struct JoinFloatNonAligned<FloatType::kFloat64, Threads> {
+  static __device__ void join(
+      const typename FloatTypeInfo<
+          FloatType::kFloat64>::CompT* __restrict__ compIn,
+      const typename FloatTypeInfo<
+          FloatType::kFloat64>::CompT* __restrict__ compInFirstDataset,
+      const typename FloatTypeInfo<
+          FloatType::kFloat64>::NonCompT* __restrict__ nonCompIn,
+      uint32_t size,
+      typename FloatTypeInfo<FloatType::kFloat64>::WordT* __restrict__ out) {
+    using FTI = FloatTypeInfo<FloatType::kFloat64>;
+    using CompT = typename FTI::CompT;
+    using NonCompT = typename FTI::NonCompT;
+    
+
+    // Where the low order 4 bytes are read
+    uint32_t* nonComp1In = (uint32_t*)nonCompIn;
+
+    // Where the high order 2 bytes are read
+    uint16_t* nonComp2In = (uint16_t*)(nonComp1In + roundUp(size, 4));
+
+    for (uint32_t i = blockIdx.x * Threads + threadIdx.x; i < size;
+         i += gridDim.x * Threads) {
+      uint64_t nc = (uint64_t(nonComp2In[i]) * 4294967296U) + uint64_t(nonComp1In[i]);
+
+      CompT twoCompressedBytes[2] = {compInFirstDataset[i], compIn[i]};
+      out[i] = FTI::join(twoCompressedBytes, nc);
+    }
+  }
+};
+
 template <FloatType FT, int Threads>
 struct JoinFloatAligned16 {
   static __device__ void join(
@@ -286,6 +350,7 @@ template <FloatType FT, int Threads>
 struct JoinFloatImpl {
   static __device__ void join(
       const typename FloatTypeInfo<FT>::CompT* compIns,
+      const typename FloatTypeInfo<FT>::CompT* compInFirstDataset, // UNUSED
       const typename FloatTypeInfo<FT>::NonCompT* nonCompIn,
       uint32_t size,
       typename FloatTypeInfo<FT>::WordT* out,
@@ -305,7 +370,8 @@ struct JoinFloatImpl {
 template <int Threads>
 struct JoinFloatImpl<FloatType::kFloat32, Threads> {
   static __device__ void join(
-      const typename FloatTypeInfo<FloatType::kFloat32>::CompT* compIns,
+      const typename FloatTypeInfo<FloatType::kFloat32>::CompT* compIn,
+      const typename FloatTypeInfo<FloatType::kFloat32>::CompT* compInFirstDataset, // UNUSED
       const typename FloatTypeInfo<FloatType::kFloat32>::NonCompT* nonCompIn,
       uint32_t size,
       typename FloatTypeInfo<FloatType::kFloat32>::WordT* out,
@@ -313,6 +379,34 @@ struct JoinFloatImpl<FloatType::kFloat32, Threads> {
     // FIXME: implement vectorization
     JoinFloatNonAligned<FloatType::kFloat32, Threads>::join(
         compIns, nonCompIn, size, out, compDatasetStride);
+  }
+};
+
+template <int Threads>
+struct JoinFloatImpl<FloatType::kFloat64, Threads> {
+  static __device__ void join(
+      const typename FloatTypeInfo<FloatType::kFloat64>::CompT* compIn,
+      const typename FloatTypeInfo<FloatType::kFloat64>::CompT* compInFirstDataset,
+      const typename FloatTypeInfo<FloatType::kFloat64>::NonCompT* nonCompIn,
+      uint32_t size,
+      typename FloatTypeInfo<FloatType::kFloat64>::WordT* out) {
+    // FIXME: implement vectorization
+    JoinFloatNonAligned<FloatType::kFloat64, Threads>::join(
+        compIn, compInFirstDataset, nonCompIn, size, out);
+  }
+};
+
+template <int Threads>
+struct JoinFloatImpl<FloatType::kFloat64, Threads> {
+  static __device__ void join(
+      const typename FloatTypeInfo<FloatType::kFloat64>::CompT* compIn,
+      const typename FloatTypeInfo<FloatType::kFloat64>::CompT* compInFirstDataset,
+      const typename FloatTypeInfo<FloatType::kFloat64>::NonCompT* nonCompIn,
+      uint32_t size,
+      typename FloatTypeInfo<FloatType::kFloat64>::WordT* out) {
+    // FIXME: implement vectorization
+    JoinFloatNonAligned<FloatType::kFloat64, Threads>::join(
+        compIn, compInFirstDataset, nonCompIn, size, out);
   }
 };
 
@@ -324,6 +418,7 @@ template <
     int Threads>
 __global__ void joinFloat(
     InProviderComp inProviderComp,
+    InProviderComp inProviderCompFirstDataset, // same as inProviderComp, except for F64
     InProviderNonComp inProviderNonComp,
     OutProvider outProvider,
     uint8_t* __restrict__ outSuccess,
@@ -337,6 +432,7 @@ __global__ void joinFloat(
   int batch = blockIdx.y;
 
   auto curCompIn = (const CompT*)inProviderComp.getBatchStart(batch);
+  auto curCompInFirstDataset = (const CompT*) inProviderCompFirstDataset.getBatchStart(batch);
   auto curHeaderIn =
       (const GpuFloatHeader*)inProviderNonComp.getBatchStart(batch);
   auto curOut = (WordT*)outProvider.getBatchStart(batch);
@@ -362,7 +458,7 @@ __global__ void joinFloat(
 
   auto curNonCompIn = (const NonCompT*)(curHeaderIn + 2);
 
-  JoinFloatImpl<FT, Threads>::join(curCompIn, curNonCompIn, curSize, curOut, compDatasetStride);
+  JoinFloatImpl<FT, Threads>::join(curCompIn, curCompInFirstDataset, curNonCompIn, curSize, curOut);
 }
 
 template <FloatType FT, typename InProvider>
@@ -651,7 +747,7 @@ __global__ void getANSOutOffset(InProvider inProvider,
   uint32_t batch = blockIdx.x * blockDim.x + threadIdx.x;
   if (batch < numInBatch) {
     auto headerIn = ((GpuFloatHeader2*) inProvider.getBatchStart(batch)) + 1;
-    ansOutOffset[batch] = roundUp(headerIn->getFirstCompSegmentBytes(), 16);
+    ansOutOffset[batch] = headerIn->getFirstCompSegmentBytes();
   }
 }
 
@@ -740,6 +836,7 @@ compSegment = 0;                                                          \
       using OutProviderANS = BatchProviderStride;                           \
       auto outProviderANS = OutProviderANS(                                 \
           exp_dev.data() + compSegment * roundUp(numInBatch * maxCapacityAligned, 16), maxCapacityAligned, maxCapacityAligned);          \
+      auto outProviderANSFirstSegment = OutProviderANS(exp_dev.data(), maxCapacityAligned, maxCapacityAligned); \
       ansDecodeBatch(                                                       \
           res,                                                              \
           config.ansConfig,                                                 \
@@ -750,7 +847,7 @@ compSegment = 0;                                                          \
           outSize_dev,                                                      \
           stream);                                                          \
                                                                             \
-      if(compSegment==0){                                                   \
+      if(compSegment==0 && nCompSegments == 2){                             \
       getANSOutOffset<InProvider, FT><<<divUp(numInBatch, 128), 128, 0,     \
                                     stream>>> (inProvider,                  \
                                     ansOutOffset_dev.data(), numInBatch);   \
@@ -774,6 +871,7 @@ compSegment = 0;                                                          \
       joinFloat<OutProviderANS, InProvider, OutProvider, FT, kThreads>      \
           <<<grid, kThreads, 0, stream>>>(                                  \
               outProviderANS,                                               \
+              outProviderANSFirstSegment,                                   \
               inProvider,                                                   \
               outProvider,                                                  \
               outSuccess_dev,                                               \

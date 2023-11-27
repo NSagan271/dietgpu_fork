@@ -86,8 +86,8 @@ struct UpdateCompAndHist<FloatType::kFloat64> {
     NonCompT nonComp;
     FTI::split(inWord, compOuts, nonComp);
 
-    nonComp2Out = nonComp & 0xffffffffU;
-    nonComp1Out = nonComp >> 32;
+    nonComp1Out = nonComp & 0xffffffffU;
+    nonComp2Out = nonComp >> 32;
 
     atomicAdd(&warpHistograms[0][compOuts[0]], 1);
     atomicAdd(&warpHistograms[1][compOuts[1]], 1);
@@ -205,7 +205,7 @@ struct SplitFloatAligned16 {
         v[i] = inV[i * Threads];
       }
 
-      CompVecT compV[kOuterUnroll*MAX_NUM_COMP_OUTS];
+      CompVecT compV[roundUp(kOuterUnroll, 16 / sizeof(CompVecT))*MAX_NUM_COMP_OUTS];
       NonCompVecSplit1T nonCompV1[kOuterUnroll];
       NonCompVecSplit2T nonCompV2[kOuterUnroll];
 
@@ -222,16 +222,16 @@ struct SplitFloatAligned16 {
           if (FTI::getIfNonCompSplit())
             nonCompV2[i].x[j] = nonComp2;
 
-          for (int k = 0; k < numCompSegments; k++) {
-            compV[k*kOuterUnroll + i].x[j] = comps[k];
+          for (int k = 0; k < numCompSegments; ++k) {
+            compV[k*roundUp(kOuterUnroll, 16 / sizeof(CompVecT)) + i].x[j] = comps[k];
           }
         }
       }
 
 #pragma unroll
       for (uint32_t i = 0; i < kOuterUnroll; ++i) {
-        for (int k = 0; k < numCompSegments; k++) {
-          compOutsV[i*Threads + k*compDatasetStrideVec] = compV[k*kOuterUnroll + i];
+        for (int k = 0; k < numCompSegments; ++k) {
+          compOutsV[i*Threads + k*compDatasetStrideVec] = compV[k*roundUp(kOuterUnroll, 16 / sizeof(CompVecT)) + i];
         }
 
         nonCompOutV1[i * Threads] = nonCompV1[i];

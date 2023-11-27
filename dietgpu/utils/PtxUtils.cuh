@@ -106,7 +106,7 @@ __device__ __forceinline__ uint64_t rotateRight(uint64_t v, uint32_t shift) {
     Let v1 be the least-significant 32 bits of v and v2 be the most significant 32 bits.
     then the least significant 64 bits of [v2, v1, v2, v1] >> 1 are what we want.
   */
-  uint32_t __align__(16) r4, r5, v1, v2;
+  uint32_t r4, r5, v1, v2;
   v1 = v & 0xffffffff;
   v2 = v >> 32;
   asm("shf.r.clamp.b32 %0, %1, %2, %3;"
