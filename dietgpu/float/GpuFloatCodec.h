@@ -20,6 +20,7 @@ enum class FloatType : uint32_t {
   kFloat16 = 1,
   kBFloat16 = 2,
   kFloat32 = 3,
+  kFloat64 = 4,
 };
 
 // Returns the maximum possible compressed size in bytes of an array of `size`

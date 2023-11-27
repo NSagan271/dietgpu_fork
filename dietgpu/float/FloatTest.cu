@@ -106,6 +106,15 @@ struct GenerateFloat<FloatType::kFloat32> {
   }
 };
 
+template <>
+struct GenerateFloat<FloatType::kFloat64> {
+  static FloatTypeInfo<FloatType::kFloat64>::WordT gen(double v) {
+    FloatTypeInfo<FloatType::kFloat64>::WordT out;
+    std::memcpy(&out, &v, sizeof(double));
+    return out;
+  }
+};
+
 template <FloatType FT>
 std::vector<typename FloatTypeInfo<FT>::WordT> generateFloats(int num) {
   std::mt19937 gen(10 + num);
@@ -130,9 +139,11 @@ void runBatchPointerTest(
   auto stream = CudaStream::makeNonBlocking();
 
   int numInBatch = batchSizes.size();
+  
   uint32_t totalSize = 0;
   uint32_t maxSize = 0;
   for (auto v : batchSizes) {
+    //printf("batchSizes %d", v);
     totalSize += v;
     maxSize = std::max(maxSize, v);
   }
@@ -164,7 +175,7 @@ void runBatchPointerTest(
 
   auto compConfig =
       FloatCompressConfig(FT, ANSCodecConfig(probBits), false, true);
-
+  
   floatCompress(
       res,
       compConfig,
@@ -174,7 +185,7 @@ void runBatchPointerTest(
       encPtrs.data(),
       outBatchSize_dev.data(),
       stream);
-
+  
   // Decode data
   auto dec_dev = res.alloc<typename FTI::WordT>(stream, totalSize);
 
@@ -192,6 +203,9 @@ void runBatchPointerTest(
 
   auto decompConfig =
       FloatDecompressConfig(FT, ANSCodecConfig(probBits), false, true);
+
+  // printf("data compress config\n");
+  // printf("data compress\n");
 
   floatDecompress(
       res,
@@ -244,6 +258,9 @@ void runBatchPointerTest(
     case FloatType::kFloat32:
       runBatchPointerTest<FloatType::kFloat32>(res, probBits, batchSizes);
       break;
+    case FloatType::kFloat64:
+      runBatchPointerTest<FloatType::kFloat64>(res, probBits, batchSizes);
+      break;
     default:
       CHECK(false);
       break;
@@ -270,8 +287,21 @@ void runBatchPointerTest(
 TEST(FloatTest, Batch) {
   auto res = makeStackMemory();
 
+  // // Note to Mingfei: the first function call works...
+  // runBatchPointerTest(res, FloatType::kFloat64, 9, 3);
+  // std::cout << "HI" << std::endl;
+  // // ... and the second has a misaligned address error in splitFloat (GpuFloatCompress.cuh)
+  // runBatchPointerTest(res, FloatType::kFloat64, 9, 3);
+  // runBatchPointerTest(res, FloatType::kFloat64, 9, 3, 16);
+  // runBatchPointerTest(res, FloatType::kFloat64, 10, 3);
+  // runBatchPointerTest(res, FloatType::kFloat64, 10, 3, 16);
+  // runBatchPointerTest(res, FloatType::kFloat64, 9, 1);
+  // runBatchPointerTest(res, FloatType::kFloat64, 9, 1, 16);
+  // runBatchPointerTest(res, FloatType::kFloat64, 10, 1);
+  // runBatchPointerTest(res, FloatType::kFloat64, 10, 1, 16);
+
   for (auto ft :
-       {FloatType::kFloat16, FloatType::kBFloat16, FloatType::kFloat32}) {
+       {FloatType::kFloat16, FloatType::kBFloat16, FloatType::kFloat32, FloatType::kFloat64}) {
     for (auto probBits : {9, 10}) {
       for (auto numInBatch : {1, 3, 16, 23}) {
         runBatchPointerTest(res, ft, probBits, numInBatch);
@@ -292,7 +322,7 @@ TEST(FloatTest, LargeBatch) {
   }
 
   for (auto ft :
-       {FloatType::kFloat16, FloatType::kBFloat16, FloatType::kFloat32}) {
+       {FloatType::kFloat16, FloatType::kBFloat16, FloatType::kFloat32, FloatType::kFloat64}) {
     runBatchPointerTest(res, ft, 10, batchSizes);
   }
 }
@@ -300,8 +330,7 @@ TEST(FloatTest, LargeBatch) {
 TEST(FloatTest, BatchSize1) {
   auto res = makeStackMemory();
 
-  for (auto ft :
-       {FloatType::kFloat16, FloatType::kBFloat16, FloatType::kFloat32}) {
+  for (auto ft : {FloatType::kFloat16, FloatType::kBFloat16, FloatType::kFloat32, FloatType::kFloat64}) {
     for (auto probBits : {9, 10}) {
       runBatchPointerTest(res, ft, probBits, {1});
       runBatchPointerTest(res, ft, probBits, {13, 1});

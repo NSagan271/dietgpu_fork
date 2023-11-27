@@ -24,7 +24,7 @@ uint32_t getMaxFloatCompressedSize(FloatType floatType, uint32_t size) {
   // kNotCompressed bytes per float are simply stored uncompressed
   // rounded up to 16 bytes to ensure alignment of the following ANS data
   // portion
-  uint32_t baseSize = sizeof(GpuFloatHeader) + getMaxCompressedSize(size);
+  uint32_t baseSize = sizeof(GpuFloatHeader) + sizeof(GpuFloatHeader2) + getMaxCompressedSize(size);
 
   switch (floatType) {
     case FloatType::kFloat16:
@@ -35,6 +35,9 @@ uint32_t getMaxFloatCompressedSize(FloatType floatType, uint32_t size) {
       break;
     case FloatType::kFloat32:
       baseSize += FloatTypeInfo<FloatType::kFloat32>::getUncompDataSize(size);
+      break;
+    case FloatType::kFloat64:
+      baseSize += FloatTypeInfo<FloatType::kFloat64>::getUncompDataSize(size) + getMaxCompressedSize(size);
       break;
     default:
       CHECK(false);
