@@ -226,21 +226,21 @@ void runBatchPointerTest(
     EXPECT_EQ(outSize[i], batchSizes[i]);
   }
 
-  // auto dec = dec_dev.copyToHost(stream);
+  auto dec = dec_dev.copyToHost(stream);
 
-  // for (int i = 0; i < orig.size(); ++i) {
-  //   if (orig[i] != dec[i]) {
-  //     printf(
-  //         "mismatch at %d / %d: 0x%08X 0x%08X\n",
-  //         i,
-  //         (int)orig.size(),
-  //         orig[i],
-  //         dec[i]);
-  //     break;
-  //   }
-  // }
+  for (int i = 0; i < orig.size(); ++i) {
+    if (orig[i] != dec[i]) {
+      printf(
+          "mismatch at %d / %d: 0x%08X 0x%08X\n",
+          i,
+          (int)orig.size(),
+          orig[i],
+          dec[i]);
+      break;
+    }
+  }
 
-  // EXPECT_EQ(orig, dec);
+  EXPECT_EQ(orig, dec);
 }
 
 void runBatchPointerTest(
@@ -301,10 +301,7 @@ TEST(FloatTest, Batch) {
   // runBatchPointerTest(res, FloatType::kFloat64, 10, 1, 16);
 
   for (auto ft :
-        // {FloatType::kFloat16}) {
-        //    {FloatType::kFloat64}) {
        {FloatType::kFloat16, FloatType::kBFloat16, FloatType::kFloat32, FloatType::kFloat64}) {
-        // {FloatType::kFloat32}) {
     for (auto probBits : {9, 10}) {
       for (auto numInBatch : {1, 3, 16, 23}) {
         runBatchPointerTest(res, ft, probBits, numInBatch);

@@ -290,13 +290,11 @@ __global__ void splitFloat(
 
   uint32_t* curHistsOut = histogramsOut + batch * kNumSymbols;
 
-  // printf("here here here 1\n");
   checksum += batch;
 
   // +1 in order to force very common symbols that could overlap into different
   // banks between different warps
   __shared__ uint32_t histogram[kWarps][MAX_NUM_COMP_OUTS * roundUp(kNumSymbols + 1, 4)];
-// printf("here here here 1.5\n");
 #pragma unroll
   for (int i = 0; i < kWarps; ++i) {
     for (int k = 0; k < numHists; k++) {
@@ -305,19 +303,14 @@ __global__ void splitFloat(
   }
 
   __syncthreads();
-  // printf("here here here 2\n");
 
   uint32_t* warpHistograms = histogram[warpId];
-  // printf("here here here 3\n");
 
   auto curIn = (const WordT*)inProvider.getBatchStart(batch);
   auto headerOut = (GpuFloatHeader*)nonCompProvider.getBatchStart(batch);
-  // printf("here here here 4\n");
 
   CompT* curCompOuts = (CompT*) compOuts + compOutStride * batch;
-  // printf("here here here 5\n");
   auto curSize = inProvider.getBatchSize(batch);
-  // printf("here here here 6\n");
 
   // Write size as a header
   if (blockIdx.x == 0 && threadIdx.x == 0) {
@@ -338,8 +331,6 @@ __global__ void splitFloat(
 
   // How many bytes are before the point where we are 16 byte aligned?
   auto nonAlignedBytes = getAlignmentRoundUp<sizeof(uint4)>(curIn);
-
-  // printf("here here here 7\n");
 
   if (nonAlignedBytes > 0) {
     SplitFloatNonAligned<FT, Threads>::split(
@@ -536,7 +527,6 @@ void floatCompressDevice(
     uint32_t perBatchGrid = 4 * divUp(maxGrid, numInBatch);        \
     auto grid = dim3(perBatchGrid, numInBatch);                    \
                                                                    \
-    /*printf("perBatchGrid, numInBatch %d %d\n", perBatchGrid, numInBatch);     */                                                         \
     splitFloat<InProvider, OutProvider, FLOAT_TYPE, kBlock>        \
         <<<grid, kBlock, 0, stream>>>(                             \
             inProvider,                                            \
@@ -548,7 +538,6 @@ void floatCompressDevice(
             roundUp(numInBatch * kNumSymbols, 4),                  \
             outProvider,                                           \
             histograms_dev.data());                                \
-  /*printf("splitFloat done\n");*/\
   } while (false)
 
   switch (config.floatType) {
@@ -579,20 +568,17 @@ uint32_t compSegment = 0;
 #define RUN_ANS(FT, nCompSegments)                                          \
   compSegment = 0;                                                          \
   do {                                                                      \
-  /*printf("run FloatANSInProvider\n");*/ \
     auto inProviderANS = FloatANSInProvider<InProvider>(                    \
         toComp_dev.data() + compSegment *                                   \
                     roundUp(numInBatch * compRowStride, 16),                \
         compRowStride, inProvider);                                         \
                                                                             \
-   /*printf("run FloatANSOutProvider\n");*/ \
     auto outProviderANS = FloatANSOutProvider<FT, OutProvider, InProvider>( \
       outProvider, inProvider, ansOutOffset_dev.data());                    \
                                                                             \
     uint32_t* outSizes = (compSegment == 0) ? outSize_dev :                 \
                               tempOutSize_dev.data();                       \
                                                                             \
-    /*printf("run ansEncodeBatchDevice\n");*/ \
     ansEncodeBatchDevice(                                                   \
         res,                                                                \
         config.ansConfig,                                                   \
@@ -617,7 +603,6 @@ uint32_t compSegment = 0;
         incOutputSizes2<<<divUp(numInBatch, 128), 128, 0,                   \
             stream>>>(outSize_dev, tempOutSize_dev.data(), numInBatch);     \
                                                                             \
-       /*printf("done ANS\n");*/ \
   } while (++compSegment < nCompSegments)
 
   // We have written the non-compressed portions of the floats into the output,
