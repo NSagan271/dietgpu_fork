@@ -291,7 +291,7 @@ struct FloatTypeInfo<FloatType::kFloat64> {
   using NonCompSplit2T = uint16_t;
 
   // 16 byte vector type
-  using VecT = uint32x2;
+  using VecT = uint64x2;
   using CompVecT = uint8x2;
   using NonCompVecT = uint64x2;
 
@@ -307,8 +307,8 @@ struct FloatTypeInfo<FloatType::kFloat64> {
   }
 
   static __device__ WordT join(const CompT* comp, NonCompT nonComp) {
-    uint64_t v = (uint64_t(comp[0]) * 0xffffffffffffffU + uint64_t(comp[1]) * 0xffffffffffffU + 
-                  uint64_t(nonComp));
+    uint64_t v = (uint64_t(comp[0]) * 72057594037927936U) + (uint64_t(comp[1]) * 281474976710656U) + 
+                  uint64_t(nonComp);
     return rotateRight(v, 1);
   }
 
