@@ -599,15 +599,12 @@ struct FloatOutProviderInline {
 
 
 template <typename InProvider, FloatType FT>
-__global__ void setHeaderAndANSOutOffset(InProvider inProvider, 
-      FloatANSProviderOffset<FT, InProvider> inProviderANS, 
+__global__ void getANSOutOffset(InProvider inProvider, 
       uint32_t* ansOutOffset, uint32_t numInBatch) {
   uint32_t batch = blockIdx.x * blockDim.x + threadIdx.x;
   if (batch < numInBatch) {
     auto headerIn = ((GpuFloatHeader2*) inProvider.getBatchStart(batch)) + 1;
-    ANSCoalescedHeader* ansHeader = (ANSCoalescedHeader*) inProviderANS.getBatchStart(batch);
-    ansOutOffset[batch] = roundUp(ansHeader->getTotalCompressedSize(), 16);
-    headerIn->setFirstCompSegmentBytes(ansOutOffset[batch]);
+    ansOutOffset[batch] = roundUp(headerIn->getFirstCompSegmentBytes(), 16);
   }
 }
 
@@ -637,7 +634,7 @@ FloatDecompressStatus floatDecompressDevice(
 
   // We can perform decoding in a single pass if all input data is 16 byte
   // aligned
-  if (config.is16ByteAligned) {
+  if (false && config.is16ByteAligned) {
 //     //
 //     // Fused kernel: perform decompression in a single pass
 //     //
@@ -691,11 +688,16 @@ FloatDecompressStatus floatDecompressDevice(
 
     auto exp_dev = res.alloc<uint8_t>(stream, roundUp(numInBatch * maxCapacityAligned, 16) * MAX_NUM_COMP_OUTS);
     auto ansOutOffset_dev = res.alloc<uint32_t>(stream, numInBatch);
-    uint32_t compSegment = 0; 
-#define RUN_DECODE(FT, nCompSegments)                                                    \
+    CUDA_VERIFY(cudaMemsetAsync(
+      ansOutOffset_dev.data(),
+      0,
+      sizeof(uint32_t) * numInBatch,
+      stream));
+uint32_t compSegment = 0;
+#define RUN_DECODE(FT, nCompSegments)                                     \
 compSegment = 0;                                                          \
   do {                                                                    \
-      using InProviderANS = FloatANSProviderOffset<FT, InProvider>;               \
+      using InProviderANS = FloatANSProviderOffset<FT, InProvider>;        \
       auto inProviderANS = InProviderANS(inProvider, ansOutOffset_dev.data());                       \
                                                                             \
       using OutProviderANS = BatchProviderStride;                           \
@@ -712,11 +714,8 @@ compSegment = 0;                                                          \
           stream);                                                          \
                                                                             \
       if(compSegment==0){                                                   \
-        incOutputSizes<FT><<<divUp(numInBatch, 128), 128, 0,                \
-            stream>>>(outProvider, outSize_dev, numInBatch);                \
-      setHeaderAndANSOutOffset<InProvider, FT>                              \
-                                <<<divUp(numInBatch, 128), 128, 0,          \
-                                    stream>>> (inProvider, inProviderANS,   \
+      getANSOutOffset<InProvider, FT><<<divUp(numInBatch, 128), 128, 0,     \
+                                    stream>>> (inProvider,                  \
                                     ansOutOffset_dev.data(), numInBatch);   \
       }                                                                     \
     if (compSegment == nCompSegments-1){                                    \

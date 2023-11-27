@@ -143,7 +143,7 @@ void runBatchPointerTest(
   uint32_t totalSize = 0;
   uint32_t maxSize = 0;
   for (auto v : batchSizes) {
-    printf("batchSizes %d", v);
+    //printf("batchSizes %d", v);
     totalSize += v;
     maxSize = std::max(maxSize, v);
   }
@@ -221,10 +221,10 @@ void runBatchPointerTest(
   auto outSuccess = outSuccess_dev.copyToHost(stream);
   auto outSize = outSize_dev.copyToHost(stream);
 
-  // for (int i = 0; i < outSuccess.size(); ++i) {
-  //   EXPECT_TRUE(outSuccess[i]);
-  //   EXPECT_EQ(outSize[i], batchSizes[i]);
-  // }
+  for (int i = 0; i < outSuccess.size(); ++i) {
+    EXPECT_TRUE(outSuccess[i]);
+    EXPECT_EQ(outSize[i], batchSizes[i]);
+  }
 
   // auto dec = dec_dev.copyToHost(stream);
 
@@ -303,8 +303,8 @@ TEST(FloatTest, Batch) {
   for (auto ft :
         // {FloatType::kFloat16}) {
         //    {FloatType::kFloat64}) {
-      //  {FloatType::kFloat16, FloatType::kBFloat16, FloatType::kFloat32, FloatType::kFloat64}) {
-        {FloatType::kFloat32}) {
+       {FloatType::kFloat16, FloatType::kBFloat16, FloatType::kFloat32, FloatType::kFloat64}) {
+        // {FloatType::kFloat32}) {
     for (auto probBits : {9, 10}) {
       for (auto numInBatch : {1, 3, 16, 23}) {
         runBatchPointerTest(res, ft, probBits, numInBatch);

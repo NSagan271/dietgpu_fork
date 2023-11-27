@@ -272,7 +272,7 @@ __global__ void splitFloat(
     const uint32_t* __restrict__ checksum,
     void* __restrict__ compOuts,
     uint32_t compOutStride,
-    uint32_t compDatasetStride,
+    uint32_t compDatasetStride, // for F64: where the second dataset to ANS compress starts
     uint32_t histDatasetStride,
     NonCompProvider nonCompProvider,
     uint32_t* __restrict__ histogramsOut) {
@@ -499,6 +499,7 @@ void floatCompressDevice(
   // Temporary space for the extracted exponents; all rows must be 16 byte
   // aligned
   uint32_t compRowStride = roundUp(maxSize, sizeof(uint4));
+  // F64: [ ... first dataset (size numInBatch * compRowStride) ..., ... second dataset (same size) ... ]
   auto toComp_dev = res.alloc<uint8_t>(stream, roundUp(numInBatch * compRowStride, 16) * MAX_NUM_COMP_OUTS);
 
   auto tempOutSize_dev = res.alloc<uint32_t>(stream, numInBatch);
@@ -535,6 +536,7 @@ void floatCompressDevice(
     uint32_t perBatchGrid = 4 * divUp(maxGrid, numInBatch);        \
     auto grid = dim3(perBatchGrid, numInBatch);                    \
                                                                    \
+    /*printf("perBatchGrid, numInBatch %d %d\n", perBatchGrid, numInBatch);     */                                                         \
     splitFloat<InProvider, OutProvider, FLOAT_TYPE, kBlock>        \
         <<<grid, kBlock, 0, stream>>>(                             \
             inProvider,                                            \
@@ -546,6 +548,7 @@ void floatCompressDevice(
             roundUp(numInBatch * kNumSymbols, 4),                  \
             outProvider,                                           \
             histograms_dev.data());                                \
+  /*printf("splitFloat done\n");*/\
   } while (false)
 
   switch (config.floatType) {
@@ -576,17 +579,20 @@ uint32_t compSegment = 0;
 #define RUN_ANS(FT, nCompSegments)                                          \
   compSegment = 0;                                                          \
   do {                                                                      \
+  /*printf("run FloatANSInProvider\n");*/ \
     auto inProviderANS = FloatANSInProvider<InProvider>(                    \
         toComp_dev.data() + compSegment *                                   \
                     roundUp(numInBatch * compRowStride, 16),                \
         compRowStride, inProvider);                                         \
                                                                             \
+   /*printf("run FloatANSOutProvider\n");*/ \
     auto outProviderANS = FloatANSOutProvider<FT, OutProvider, InProvider>( \
       outProvider, inProvider, ansOutOffset_dev.data());                    \
                                                                             \
     uint32_t* outSizes = (compSegment == 0) ? outSize_dev :                 \
                               tempOutSize_dev.data();                       \
                                                                             \
+    /*printf("run ansEncodeBatchDevice\n");*/ \
     ansEncodeBatchDevice(                                                   \
         res,                                                                \
         config.ansConfig,                                                   \
@@ -607,10 +613,11 @@ uint32_t compSegment = 0;
                                     stream>>> ( outProvider, outProviderANS,\
                                     ansOutOffset_dev.data(), numInBatch);   \
     }                                                                       \
-    else if (false)                                                         \
+    else                                                                    \
         incOutputSizes2<<<divUp(numInBatch, 128), 128, 0,                   \
             stream>>>(outSize_dev, tempOutSize_dev.data(), numInBatch);     \
                                                                             \
+       /*printf("done ANS\n");*/ \
   } while (++compSegment < nCompSegments)
 
   // We have written the non-compressed portions of the floats into the output,

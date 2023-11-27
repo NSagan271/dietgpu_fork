@@ -1,5 +1,0 @@
-if(EXISTS "/home/ee274_mfguo_nsagan/mfguo/dietgpu_fork/build/dietgpu/ans/ans_statistics_test[1]_tests.cmake")
-  include("/home/ee274_mfguo_nsagan/mfguo/dietgpu_fork/build/dietgpu/ans/ans_statistics_test[1]_tests.cmake")
-else()
-  add_test(ans_statistics_test_NOT_BUILT ans_statistics_test_NOT_BUILT)
-endif()
