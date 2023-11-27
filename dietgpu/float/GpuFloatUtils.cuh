@@ -96,6 +96,9 @@ struct __align__(16) uint64x2 {
   uint64_t x[2];
 };
 
+struct __align__(16) uint64x4 {
+  uint64_t x[4];
+};
 
 struct __align__(16) uint32x4 {
   uint32_t x[4];
@@ -310,6 +313,26 @@ struct FloatTypeInfo<FloatType::kFloat64> {
     uint64_t v = (uint64_t(comp[0]) * 72057594037927936U) + (uint64_t(comp[1]) * 281474976710656U) + 
                   uint64_t(nonComp);
     return rotateRight(v, 1);
+  }
+
+  // static __device__ uint64_t join(const uint8_t* comp, uint64_t nonComp) {
+  //   uint64_t v = (uint64_t(comp[0]) * 72057594037927936U) + (uint64_t(comp[1]) * 281474976710656U) + 
+  //                 uint64_t(nonComp);
+  //   return rotateRight(v, 1);
+  // }
+
+  static __device__ NonCompVecT mulV(const CompVecT comp, const uint64_t intVal) {
+    uint64x2 v;
+    v.x[0] = uint64_t(comp.x[0]) * intVal;
+    v.x[1] = uint64_t(comp.x[1]) * intVal;
+    return v;
+  }
+
+  static __device__ NonCompVecT addV(const NonCompVecT comp1, const NonCompVecT comp2) {
+    uint64x2 v;
+    v.x[0] = comp1.x[0] + comp2.x[0];
+    v.x[1] = comp1.x[1] + comp2.x[1];
+    return v;
   }
 
   // How many bytes of data are in the non-compressed portion past the float
