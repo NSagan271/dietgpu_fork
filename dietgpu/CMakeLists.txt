@@ -11,7 +11,7 @@ target_link_libraries(dietgpu PRIVATE
   glog::glog
   "${TORCH_LIBRARIES}"
 )
-target_include_directories(dietgpu PRIVATE
+target_include_directories(dietgpu PUBLIC
   $<BUILD_INTERFACE:${dietgpu_SOURCE_DIR}>
   "${TORCH_INCLUDE_DIRS}"
 )

@@ -9,7 +9,7 @@
 
 import torch
 
-torch.ops.load_library("//dietgpu:dietgpu")
+torch.ops.load_library("../build/lib/libdietgpu.so")
 dev = torch.device("cuda:0")
 
 
