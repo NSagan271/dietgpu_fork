@@ -4,7 +4,10 @@
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  */
-
+#include <iostream>
+#include <ctime>
+#include <fstream>
+#include <chrono>
 #include <gtest/gtest.h>
 #include <cmath>
 #include <cstring>
@@ -110,6 +113,7 @@ template <>
 struct GenerateFloat<FloatType::kFloat64> {
   static FloatTypeInfo<FloatType::kFloat64>::WordT gen(double v) {
     FloatTypeInfo<FloatType::kFloat64>::WordT out;
+    // v *= 1e8; // float64 has a larger exponent, so we need to make larger floats
     std::memcpy(&out, &v, sizeof(double));
     return out;
   }
@@ -118,7 +122,7 @@ struct GenerateFloat<FloatType::kFloat64> {
 template <FloatType FT>
 std::vector<typename FloatTypeInfo<FT>::WordT> generateFloats(int num) {
   std::mt19937 gen(10 + num);
-  std::normal_distribution<float> dist;
+  std::normal_distribution<double> dist;
 
   auto out = std::vector<typename FloatTypeInfo<FT>::WordT>(num);
   for (auto& v : out) {
@@ -132,27 +136,155 @@ template <FloatType FT>
 void runBatchPointerTest(
     StackDeviceMemory& res,
     int probBits,
-    const std::vector<uint32_t>& batchSizes) {
+    const std::vector<uint32_t>& batchSizes,
+    int idx) {
   using FTI = FloatTypeInfo<FT>;
 
   // run on a different stream to test stream assignment
-  auto stream = CudaStream::makeNonBlocking();
+  auto stream = CudaStream::make();
+
+
+  std::ofstream outputFile("/home/ee274_mfguo_nsagan/nsagan/dietgpu_fork/dietgpu/float/time_comp_decompress.txt", std::ios::app);
 
   int numInBatch = batchSizes.size();
   
   uint32_t totalSize = 0;
   uint32_t maxSize = 0;
   for (auto v : batchSizes) {
-    //printf("batchSizes %d", v);
     totalSize += v;
     maxSize = std::max(maxSize, v);
   }
 
+  
   auto maxCompressedSize = getMaxFloatCompressedSize(FT, maxSize);
+  // const std::string filename = "/home/ee274_mfguo_nsagan/mfguo/dietgpu_fork/dietgpu/float/num_comet.trace.fpc"; // Replace with your file name
+
+
+  // std::ifstream inputFile(filename, std::ios::binary);
+
+  // if (!inputFile) {
+  //     std::cerr << "Failed to open file: " << filename << std::endl;
+  // }
+
+  // // Create a vector to hold the float64 data
+  // std::vector<double> data(totalSize);
+
+
+        
+
+  // auto maxCompressedSize = getMaxFloatCompressedSize(FT, maxSize);
+
+
+  // // Read and process data in batches.
+  // while (true) {
+  //     // Read a batch of data from the file
+  //     inputFile.read(data.data(), totalSize * 16);
+      
+  //     // Check how many elements were actually read
+  //     std::streamsize bytesRead = inputFile.gcount();
+  //     if (bytesRead == 0) {
+  //         break; // End of file reached
+  //     }
+
+
+  //     auto orig = data;
+  //     auto orig_dev = res.copyAlloc(stream, orig);
+
+  //     auto inPtrs = std::vector<const void*>(batchSizes.size());
+  //     {
+  //       uint32_t curOffset = 0;
+  //       for (int i = 0; i < inPtrs.size(); ++i) {
+  //         inPtrs[i] = (const typename FTI::WordT*)orig_dev.data() + curOffset;
+  //         curOffset += batchSizes[i];
+  //       }
+  //     }
+
+  //     auto enc_dev = res.alloc<uint8_t>(stream, numInBatch * maxCompressedSize);
+
+  //     auto encPtrs = std::vector<void*>(batchSizes.size());
+  //     {
+  //       for (int i = 0; i < inPtrs.size(); ++i) {
+  //         encPtrs[i] = (uint8_t*)enc_dev.data() + i * maxCompressedSize;
+  //       }
+  //     }
+
+  //     auto outBatchSize_dev = res.alloc<uint32_t>(stream, numInBatch);
+
+  //     auto compConfig =
+  //         FloatCompressConfig(FT, ANSCodecConfig(probBits), false, true);
+      
+  //     floatCompress(
+  //         res,
+  //         compConfig,
+  //         numInBatch,
+  //         inPtrs.data(),
+  //         batchSizes.data(),
+  //         encPtrs.data(),
+  //         outBatchSize_dev.data(),
+  //         stream);
+      
+  //     // Decode data
+  //     auto dec_dev = res.alloc<typename FTI::WordT>(stream, totalSize);
+
+  //     auto decPtrs = std::vector<void*>(batchSizes.size());
+  //     {
+  //       uint32_t curOffset = 0;
+  //       for (int i = 0; i < inPtrs.size(); ++i) {
+  //         decPtrs[i] = (typename FTI::WordT*)dec_dev.data() + curOffset;
+  //         curOffset += batchSizes[i];
+  //       }
+  //     }
+
+  //     auto outSuccess_dev = res.alloc<uint8_t>(stream, numInBatch);
+  //     auto outSize_dev = res.alloc<uint32_t>(stream, numInBatch);
+
+  //     auto decompConfig =
+  //         FloatDecompressConfig(FT, ANSCodecConfig(probBits), false, true);
+
+  //     // printf("data compress config\n");
+  //     // printf("data compress\n");
+
+  //     floatDecompress(
+  //         res,
+  //         decompConfig,
+  //         numInBatch,
+  //         (const void**)encPtrs.data(),
+  //         decPtrs.data(),
+  //         batchSizes.data(),
+  //         outSuccess_dev.data(),
+  //         outSize_dev.data(),
+  //         stream);
+
+  //     auto outSuccess = outSuccess_dev.copyToHost(stream);
+  //     auto outSize = outSize_dev.copyToHost(stream);
+
+  //     for (int i = 0; i < outSuccess.size(); ++i) {
+  //       EXPECT_TRUE(outSuccess[i]);
+  //       EXPECT_EQ(outSize[i], batchSizes[i]);
+  //     }
+
+  //     auto dec = dec_dev.copyToHost(stream);
+
+  //     for (int i = 0; i < orig.size(); ++i) {
+  //       if (orig[i] != dec[i]) {
+  //         printf(
+  //             "mismatch at %d / %d: 0x%08X 0x%08X\n",
+  //             i,
+  //             (int)orig.size(),
+  //             orig[i],
+  //             dec[i]);
+  //         break;
+  //       }
+  //     }
+
+  //     EXPECT_EQ(orig, dec);
+
+  // }
 
   auto orig = generateFloats<FT>(totalSize);
   auto orig_dev = res.copyAlloc(stream, orig);
 
+  auto start = std::chrono::system_clock::now();
   auto inPtrs = std::vector<const void*>(batchSizes.size());
   {
     uint32_t curOffset = 0;
@@ -175,7 +307,7 @@ void runBatchPointerTest(
 
   auto compConfig =
       FloatCompressConfig(FT, ANSCodecConfig(probBits), false, true);
-  
+
   floatCompress(
       res,
       compConfig,
@@ -186,6 +318,16 @@ void runBatchPointerTest(
       outBatchSize_dev.data(),
       stream);
   
+
+  cudaDeviceSynchronize();
+
+  auto end = std::chrono::system_clock::now();
+    
+  std::chrono::duration<double> dur1 = end-start;
+  double elapsed_seconds = std::chrono::duration_cast<std::chrono::microseconds>(dur1).count() / 1e6;
+
+  std::time_t end_time = std::chrono::system_clock::to_time_t(end);
+
   // Decode data
   auto dec_dev = res.alloc<typename FTI::WordT>(stream, totalSize);
 
@@ -207,6 +349,8 @@ void runBatchPointerTest(
   // printf("data compress config\n");
   // printf("data compress\n");
 
+ auto start2 = std::chrono::system_clock::now();
+
   floatDecompress(
       res,
       decompConfig,
@@ -217,6 +361,54 @@ void runBatchPointerTest(
       outSuccess_dev.data(),
       outSize_dev.data(),
       stream);
+
+
+
+  cudaDeviceSynchronize();
+  auto end2 = std::chrono::system_clock::now();
+    
+  std::chrono::duration<double> dur2 = end2-start2;
+  double elapsed_seconds2 = std::chrono::duration_cast<std::chrono::microseconds>(dur2).count() / 1e6;
+  std::time_t end_time2 = std::chrono::system_clock::to_time_t(end2);
+
+  // get empirical compression ratio
+  auto outSizeComp = outBatchSize_dev.copyToHost(stream);
+  float totalNFloats = 0;
+  float outSizeTotal = 0;
+  for (int i = 0; i < numInBatch; ++i) {
+    outSizeTotal += outSizeComp[i];
+    totalNFloats += batchSizes[i];
+  }
+  float inSizeTotal = totalNFloats * sizeof(typename FTI::WordT);
+
+  float compressionRatio = (outSizeTotal) / inSizeTotal;
+
+  float bw1 = (inSizeTotal / 1e9) / elapsed_seconds;
+  float bw2 = (inSizeTotal / 1e9) / elapsed_seconds2;
+
+  if (outputFile.is_open()) {
+      // Write the current time to the file
+      // float compressionRatio = 0;
+      // if (idx == 1) {
+      //   compressionRatio = (11 + 2.7) / 16;
+      // }
+      // else if (idx == 2) {
+      //   compressionRatio = (8 + 2.7) / 16;
+      // }
+      // else if (idx == 3) {
+      //   compressionRatio = (24 + 2.7) / 32;
+      // }
+      // else if (idx == 4) {
+      //   compressionRatio = (48 + 2.7*2) / 64;
+      // }
+      outputFile << idx <<" "<< 9 << " " << compressionRatio<< " "<< totalNFloats / 1e6 <<" "<<bw1<<" "<<bw2 << std::endl;
+
+      // Close the file
+      outputFile.close();
+      std::cout << "Current time has been written to 'time.txt'" << std::endl;
+  } else {
+      std::cerr << "Error opening the file 'time.txt'" << std::endl;
+  }
 
   auto outSuccess = outSuccess_dev.copyToHost(stream);
   auto outSize = outSize_dev.copyToHost(stream);
@@ -250,16 +442,16 @@ void runBatchPointerTest(
     const std::vector<uint32_t>& batchSizes) {
   switch (ft) {
     case FloatType::kFloat16:
-      runBatchPointerTest<FloatType::kFloat16>(res, probBits, batchSizes);
+      runBatchPointerTest<FloatType::kFloat16>(res, probBits, batchSizes, 1);
       break;
     case FloatType::kBFloat16:
-      runBatchPointerTest<FloatType::kBFloat16>(res, probBits, batchSizes);
+      runBatchPointerTest<FloatType::kBFloat16>(res, probBits, batchSizes, 2);
       break;
     case FloatType::kFloat32:
-      runBatchPointerTest<FloatType::kFloat32>(res, probBits, batchSizes);
+      runBatchPointerTest<FloatType::kFloat32>(res, probBits, batchSizes, 3);
       break;
     case FloatType::kFloat64:
-      runBatchPointerTest<FloatType::kFloat64>(res, probBits, batchSizes);
+      runBatchPointerTest<FloatType::kFloat64>(res, probBits, batchSizes, 4);
       break;
     default:
       CHECK(false);
@@ -274,7 +466,7 @@ void runBatchPointerTest(
     int numInBatch,
     uint32_t multipleOf = 1) {
   std::mt19937 gen(10 + numInBatch);
-  std::uniform_int_distribution<uint32_t> dist(1, 10000);
+  std::uniform_int_distribution<uint32_t> dist(1, 1);
 
   auto batchSizes = std::vector<uint32_t>(numInBatch);
   for (auto& v : batchSizes) {
@@ -285,56 +477,72 @@ void runBatchPointerTest(
 }
 
 TEST(FloatTest, Batch) {
-  auto res = makeStackMemory();
+  auto res = makeStackMemory(10000000000);
 
-  // // Note to Mingfei: the first function call works...
-  // runBatchPointerTest(res, FloatType::kFloat64, 9, 3);
-  // std::cout << "HI" << std::endl;
-  // // ... and the second has a misaligned address error in splitFloat (GpuFloatCompress.cuh)
-  // runBatchPointerTest(res, FloatType::kFloat64, 9, 3);
-  // runBatchPointerTest(res, FloatType::kFloat64, 9, 3, 16);
-  // runBatchPointerTest(res, FloatType::kFloat64, 10, 3);
-  // runBatchPointerTest(res, FloatType::kFloat64, 10, 3, 16);
-  // runBatchPointerTest(res, FloatType::kFloat64, 9, 1);
-  // runBatchPointerTest(res, FloatType::kFloat64, 9, 1, 16);
-  // runBatchPointerTest(res, FloatType::kFloat64, 10, 1);
-  // runBatchPointerTest(res, FloatType::kFloat64, 10, 1, 16);
-
+  int idx = 0;
   for (auto ft :
-       {FloatType::kFloat16, FloatType::kBFloat16, FloatType::kFloat32, FloatType::kFloat64}) {
-    for (auto probBits : {9, 10}) {
-      for (auto numInBatch : {1, 3, 16, 23}) {
-        runBatchPointerTest(res, ft, probBits, numInBatch);
-        // Also test the case where there is uniform 16 byte alignment across
-        // all batches
-        runBatchPointerTest(res, ft, probBits, numInBatch, 16);
+      //  {FloatType::kFloat16, FloatType::kBFloat16, FloatType::kFloat32, FloatType::kFloat64}) {
+        {FloatType::kFloat64}) {
+    idx++;
+    for (auto numInBatch : {1}) {
+      for (auto probBits : {9}) {
+        for (long long multipleOf : {100000, 150000, 1000000, 1500000, 10000000, 15000000, 100000000}) {
+
+        
+
+        runBatchPointerTest(res, ft, probBits, numInBatch, multipleOf);
+        // Some computation here
+
+
+        }
       }
     }
   }
 }
 
-TEST(FloatTest, LargeBatch) {
-  auto res = makeStackMemory();
 
-  auto batchSizes = std::vector<uint32_t>(256);
-  for (auto& v : batchSizes) {
-    v = 512 * 1024;
-  }
 
-  for (auto ft :
-       {FloatType::kFloat16, FloatType::kBFloat16, FloatType::kFloat32, FloatType::kFloat64}) {
-    runBatchPointerTest(res, ft, 10, batchSizes);
-  }
-}
+// TEST(FloatTest, Batch) {
+//   auto res = makeStackMemory();
+//   int idx = 0;
+//   for (auto ft :
+//        {FloatType::kFloat16, FloatType::kBFloat16, FloatType::kFloat32, FloatType::kFloat64}) {
+//     idx++;
+//     for (auto numInBatch : {1, 50, 100, 150, 200}) {
+//       for (auto probBits : {9, 10, 11}) {
+        
 
-TEST(FloatTest, BatchSize1) {
-  auto res = makeStackMemory();
+        
+//         const int batchSize = numInBatch; // Adjust as needed.
 
-  for (auto ft : {FloatType::kFloat16, FloatType::kBFloat16, FloatType::kFloat32, FloatType::kFloat64}) {
-    for (auto probBits : {9, 10}) {
-      runBatchPointerTest(res, ft, probBits, {1});
-      runBatchPointerTest(res, ft, probBits, {13, 1});
-      runBatchPointerTest(res, ft, probBits, {12345, 1, 8083, 1, 17});
-    }
-  }
-}
+//         std::ofstream outputFile("/home/ee274_mfguo_nsagan/mfguo/dietgpu_fork/dietgpu/float/time_comet.txt", std::ios::app);
+        
+        
+
+//         auto start = std::chrono::system_clock::now();
+    
+
+//         runBatchPointerTest(res, ft, probBits, numInBatch);
+//         // Some computation here
+//         auto end = std::chrono::system_clock::now();
+    
+//         std::chrono::duration<double> elapsed_seconds = end-start;
+//         std::time_t end_time = std::chrono::system_clock::to_time_t(end);
+        
+
+//         if (outputFile.is_open()) {
+//             // Write the current time to the file
+//             outputFile << idx << " " << probBits<< " "<<numInBatch <<" "<<elapsed_seconds.count() << std::endl;
+
+//             // Close the file
+//             outputFile.close();
+//             std::cout << "Current time has been written to 'time.txt'" << std::endl;
+//         } else {
+//             std::cerr << "Error opening the file 'time.txt'" << std::endl;
+//         }
+//       //   }
+//       }
+//     }
+//   }
+// }
+
