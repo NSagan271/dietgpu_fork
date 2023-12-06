@@ -192,7 +192,6 @@ double cudaScanThrust(int* inarray, int* end, int* resultarray) {
 __global__ void find_index(int* input, int N, int* result) {
     long tid = blockIdx.x * blockDim.x + threadIdx.x;
     if (tid >= N - 1) return;
-    
     // printf("tid: %d\n", tid);
     // printf("input[tid]: %d\n", input[tid]);
     if (input[tid] != input[tid+1]) {
@@ -200,17 +199,44 @@ __global__ void find_index(int* input, int N, int* result) {
     }
 }
 
+
+
 template <typename T>
 __global__ void fill_output_sparse(int* input, int N, T* sparseResult, T* decResult) {
     long tid = blockIdx.x * blockDim.x + threadIdx.x;
     if (tid >= N) return;
-    // printf("tid: %d\n", tid);
-    // printf("input[tid]: %d\n", input[tid]);
+    // printf("tid: %d ", tid);
+    // printf("input: %d ", input[tid]);
     sparseResult[input[tid]] = decResult[tid];
 }
 
+template <typename T>
+__global__ void fill_origin_dense(int* sparseIdx, int N, T* sparseInput, T* denseInput) {
+    long tid = blockIdx.x * blockDim.x + threadIdx.x;
+    if (tid >= N) return;
+
+    // printf("tid: %d\n", tid);
+    // printf("sparseIdx: %d ", sparseIdx[tid]);
+    // printf("sparseInput[sparseIdx[tid]]: %lld\n", sparseInput[sparseIdx[tid]]);
+    denseInput[tid] = sparseInput[sparseIdx[tid]];
+    // printf("tid: %d\n", tid);
+    // printf("input[tid]: %d\n", input[tid]);
+    // denseInput[tid] = sparseInput[input[tid]];
+}
+
+template <typename T>
+__global__ void fill_last_bit(T* res, T* inp, int res_i, int inp_i) {
+    inp[inp_i] = res[res_i];
+}
 
 
+__global__ void fill_last_bit_with_int(int f, int* inp, int inp_i) {
+    // printf("f: %d\n", f);
+    // printf("inp_i: %d\n", inp_i);
+    inp[inp_i] = f;
+
+    // printf("inp[inp_i]: %d\n", inp[inp_i]);
+}
 // find_repeats --
 //
 // Given an array of integers `device_input`, returns an array of all
