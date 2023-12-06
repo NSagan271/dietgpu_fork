@@ -410,19 +410,33 @@ void runBatchPointerTest(
   else {
     find_index<<<rounded_length / 1024, 1024>>>(device_result, rounded_length, device_idx_result);
   }
-  // find_index(device_result, rounded_length, device_result);
-  cudaMemcpy(device_output, device_idx_result, rounded_length * sizeof(int), cudaMemcpyDeviceToHost);
-  if (bitmaps[totalSize - 1] == 1) {
-    device_output[newTotalSize - 1] = totalSize - 1;
-  }
-  // std::cout<<"after scan"<<std::endl;
-  std::vector<typename FloatTypeInfo<FT>::WordT> decSparse(totalSize, 0);
+  cudaDeviceSynchronize();
 
-  for (int i = 0; i < newTotalSize; ++i) {
-    // printf("device_output[%d]: %d\n", i, device_output[i]);
-    decSparse[device_output[i]] = dec[i];
+  std::vector<typename FloatTypeInfo<FT>::WordT> decSparse(totalSize, 0);
+  auto decSparseDev = res.copyAlloc(stream, decSparse);
+  if (rounded_length < 1024) {
+    fill_output_sparse<typename FloatTypeInfo<FT>::WordT><<<1, rounded_length>>>(device_idx_result, newTotalSize, decSparseDev.data(), dec_dev.data());
   }
-  // typename FloatTypeInfo<FT>::WordT* decSparseDev = res.copyAlloc(stream, decSparse);
+  else {
+    fill_output_sparse<typename FloatTypeInfo<FT>::WordT><<<rounded_length / 1024, 1024>>>(device_idx_result, newTotalSize, decSparseDev.data(), dec_dev.data());
+  }
+  decSparse = decSparseDev.copyToHost(stream);
+  if (bitmaps[totalSize - 1] == 1) {
+    decSparse[totalSize - 1] = dec[newTotalSize - 1];
+  }
+  // // find_index(device_result, rounded_length, device_result);
+  // cudaMemcpy(device_output, device_idx_result, rounded_length * sizeof(int), cudaMemcpyDeviceToHost);
+  // if (bitmaps[totalSize - 1] == 1) {
+  //   device_output[newTotalSize - 1] = totalSize - 1;
+  // }
+  // // std::cout<<"after scan"<<std::endl;
+  
+
+  // for (int i = 0; i < newTotalSize; ++i) {
+  //   // printf("device_output[%d]: %d\n", i, device_output[i]);
+  //   decSparse[device_output[i]] = dec[i];
+  // }
+  
   // fill_output_sparse<<<1, newTotalSize>>>(device_output, newTotalSize, decSparseDev, dec_dev.data());
   // cudaDeviceSynchronize();
   // decSparse = decSparseDev.copyToHost(stream);

@@ -203,8 +203,9 @@ __global__ void find_index(int* input, int N, int* result) {
 template <typename T>
 __global__ void fill_output_sparse(int* input, int N, T* sparseResult, T* decResult) {
     long tid = blockIdx.x * blockDim.x + threadIdx.x;
-    printf("tid: %d\n", tid);
-    printf("input[tid]: %d\n", input[tid]);
+    if (tid >= N) return;
+    // printf("tid: %d\n", tid);
+    // printf("input[tid]: %d\n", input[tid]);
     sparseResult[input[tid]] = decResult[tid];
 }
 
