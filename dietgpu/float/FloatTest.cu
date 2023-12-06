@@ -420,6 +420,7 @@ void runBatchPointerTest(
   else {
     fill_output_sparse<typename FloatTypeInfo<FT>::WordT><<<rounded_length / 1024, 1024>>>(device_idx_result, newTotalSize, decSparseDev.data(), dec_dev.data());
   }
+  cudaDeviceSynchronize();
   decSparse = decSparseDev.copyToHost(stream);
   if (bitmaps[totalSize - 1] == 1) {
     decSparse[totalSize - 1] = dec[newTotalSize - 1];
