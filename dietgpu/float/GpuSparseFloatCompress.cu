@@ -94,7 +94,6 @@ void floatCompressSparse(
       maxSize,
       outProvider,
       outSize_dev,
-      out, inSize,
       stream);
 }
 

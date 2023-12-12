@@ -22,33 +22,6 @@
 
 namespace dietgpu {
 
-template<typename T>
-__global__ void printarr(T *idxs, uint32_t count) {
-    if (blockIdx.x == 0 && threadIdx.x == 0) {
-        for (uint32_t i = 0; i < count; ++i) {
-            printf("%lu\t", idxs[i]);
-            if (i % 10 == 9)
-                printf("\n");
-        }
-        printf("\n");
-    }
-}
-
-// template <typename InProvider>
-// __global__ void get_bitmap_idxs(
-//     InProvider inProvider,
-//     uint8_t** bitmapStarts,
-//     uint8_t** bitmapEnds
-// ) {
-//     int batch = blockIdx.y;
-
-//     auto header = (GpuSparseFloatHeader*) inProvider.getBatchStart(batch);
-//     if (blockIdx.x == 0 && threadIdx.x == 0) {
-//         bitmapStarts[batch] = (uint8_t *) (header + 1);
-//         bitmapEnds[batch] = ((uint8_t *) (header + 1)) + header->size - 1;
-//     }
-// }
-
 template <typename InProvider, 
     typename OutProvider, 
     typename HeaderProvider,
@@ -177,71 +150,73 @@ FloatDecompressStatus floatDecompressSparseDevice(
 
     FloatDecompressStatus status;
 
-    #define RUN_DECOMPRESS(FT) \
-    do { \
+    #define RUN_DECOMPRESS(FT)                                                \
+    do {                                                                      \
         auto& props = getCurrentDeviceProperties();                           \
         int maxBlocksPerSM = 0;                                               \
         CUDA_VERIFY(cudaOccupancyMaxActiveBlocksPerMultiprocessor(            \
             &maxBlocksPerSM,                                                  \
-            bitmap_bits_to_bytes<InProvider>, \
+            bitmap_bits_to_bytes<InProvider>,                                 \
             kThreads,                                                         \
             0));                                                              \
         uint32_t maxGrid = maxBlocksPerSM * props.multiProcessorCount;        \
         uint32_t perBatchGrid = divUp(maxGrid, numInBatch);                   \
         if ((perBatchGrid * numInBatch > maxGrid) && perBatchGrid > 1) {      \
-            perBatchGrid -= 1;                                                 \
+            perBatchGrid -= 1;                                                \
         }                                                                     \
-        auto grid = dim3(perBatchGrid, numInBatch);    \
-        \
-        auto sparseData = res.alloc<typename FloatTypeInfo<FT>::WordT>(\
-            stream, numInBatch * maxCapacityAligned); \
-        auto sparseFloatInProvider = SparseFloatInProvider<InProvider, FT>(inProvider); \
-        BatchProviderStride sparseFloatOutProvider = BatchProviderStride( \
-            sparseData.data(), maxCapacityAligned, maxCapacity \
-        ); \
-        \
-        status = floatDecompressDevice( \
-            res, config, numInBatch, sparseFloatInProvider, sparseFloatOutProvider, \
-            maxCapacity, outSuccess_dev, sparseDecompSizes.data(), stream \
-        ); \
-        \
-        cudaDeviceSynchronize(); \
-        bitmap_bits_to_bytes<InProvider><<<grid, kThreads, 0, stream>>>( \
-            bitmaps.data(), inProvider, maxCapacityAligned \
-        ); \
-        \
-        cudaDeviceSynchronize(); \
-        \
-        auto sparseIdx = res.alloc<uint32_t>(stream, numInBatch * maxCapacityAligned); \
-        \
-        for (int batch = 0; batch < numInBatch; ++batch){ \
-            thrust::exclusive_scan( \
-                thrust::device, \
-                bitmaps.data() + batch * maxCapacityAligned, \
-                bitmaps.data() + batch * maxCapacityAligned + maxCapacityAligned - 1, \
+        auto grid = dim3(perBatchGrid, numInBatch);                           \
+                                                                              \
+        auto sparseData = res.alloc<typename FloatTypeInfo<FT>::WordT>(       \
+            stream, numInBatch * maxCapacityAligned);                         \
+        auto sparseFloatInProvider = SparseFloatInProvider                    \
+            <InProvider, FT>(inProvider);                                     \
+        BatchProviderStride sparseFloatOutProvider = BatchProviderStride(     \
+            sparseData.data(),                                                \
+            maxCapacityAligned*sizeof(typename FloatTypeInfo<FT>::WordT),     \
+            maxCapacity                                                       \
+        );                                                                    \
+                                                                              \
+        status = floatDecompressDevice(                                       \
+            res, config, numInBatch, sparseFloatInProvider,                   \
+            sparseFloatOutProvider, maxCapacity, outSuccess_dev,              \
+            sparseDecompSizes.data(), stream                                  \
+        );                                                                    \
+                                                                              \
+        bitmap_bits_to_bytes<InProvider><<<grid, kThreads, 0, stream>>>(      \
+            bitmaps.data(), inProvider, maxCapacityAligned                    \
+        );                                                                    \
+                                                                              \
+        auto sparseIdx = res.alloc<uint32_t>(stream,                          \
+            numInBatch * maxCapacityAligned);                                 \
+                                                                              \
+        cudaDeviceSynchronize();                                              \
+        for (int batch = 0; batch < numInBatch; ++batch){                     \
+            thrust::exclusive_scan(                                           \
+                thrust::device,                                               \
+                bitmaps.data() + batch * maxCapacityAligned,                  \
+                bitmaps.data() + batch * maxCapacityAligned +                 \
+                                            maxCapacityAligned - 1,           \
                 (uint32_t *) sparseIdx.data() + batch*maxCapacityAligned, 0); \
-        } \
-        \
-        cudaDeviceSynchronize(); \
-        \
-        maxBlocksPerSM = 0;                                               \
+        }                                                                     \
+        cudaDeviceSynchronize();                                              \
+                                                                              \
+        maxBlocksPerSM = 0;                                                   \
         CUDA_VERIFY(cudaOccupancyMaxActiveBlocksPerMultiprocessor(            \
             &maxBlocksPerSM,                                                  \
             populate_dense<BatchProviderStride, OutProvider, InProvider, FT>, \
             kThreads,                                                         \
             0));                                                              \
-        maxGrid = maxBlocksPerSM * props.multiProcessorCount;        \
-        perBatchGrid = divUp(maxGrid, numInBatch);                   \
+        maxGrid = maxBlocksPerSM * props.multiProcessorCount;                 \
+        perBatchGrid = divUp(maxGrid, numInBatch);                            \
         if ((perBatchGrid * numInBatch > maxGrid) && perBatchGrid > 1) {      \
-            perBatchGrid -= 1;                                                 \
+            perBatchGrid -= 1;                                                \
         }                                                                     \
-        grid = dim3(perBatchGrid, numInBatch);    \
-        populate_dense<BatchProviderStride, OutProvider, InProvider, FT>\
-            <<<grid, kThreads, 0, stream>>>( \
-            sparseFloatOutProvider, outProvider, inProvider, \
-            bitmaps.data(), \
-            sparseIdx.data(), outSize_dev, maxCapacityAligned \
-        ); \
+        grid = dim3(perBatchGrid, numInBatch);                                \
+        populate_dense<BatchProviderStride, OutProvider, InProvider, FT>      \
+            <<<grid, kThreads, 0, stream>>>(                                  \
+            sparseFloatOutProvider, outProvider, inProvider,                  \
+            bitmaps.data(), sparseIdx.data(), outSize_dev, maxCapacityAligned \
+        );                                                                    \
     } while(false);
 
     switch (config.floatType) {

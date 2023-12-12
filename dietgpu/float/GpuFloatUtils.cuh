@@ -390,4 +390,16 @@ inline size_t getWordSizeFromFloatType(FloatType ft) {
   }
 }
 
+template<typename T>
+__global__ void printarr(T *idxs, int count) {
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        for (uint32_t i = 0; i < count; ++i) {
+            printf("%lu\t", idxs[i]);
+            if (i % 10 == 9)
+                printf("\n");
+        }
+        printf("\n");
+    }
+}
+
 } // namespace dietgpu

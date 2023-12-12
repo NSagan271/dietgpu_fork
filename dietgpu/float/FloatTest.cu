@@ -395,16 +395,12 @@ void runBatchPointerTest(
 TEST(FloatTest, Batch) {
   
   auto res = makeStackMemory(10000000000);
-  int idx = 0;
   for (auto ft :
        {FloatType::kFloat16, FloatType::kBFloat16, FloatType::kFloat32,FloatType::kFloat64}) {
-        // {FloatType::kFloat32}) {
-    idx++;
+        // {FloatType::kFloat16}) {
     for (auto numInBatch : {1}) {
       for (auto probBits : {9}) {
-        // for (long long multipleOf : {5000}) {
-        // 100000000
-        // for (int multipleOf : {100}) {
+        // for (int multipleOf : {8}) {
         
         for (int multipleOf : {100000, 150000, 1000000, 1500000, 10000000, 15000000}) {
 

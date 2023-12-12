@@ -21,18 +21,6 @@
 
 namespace dietgpu {
 
-template<typename T>
-__global__ void printarr2(T *idxs, int count) {
-    if (blockIdx.x == 0 && threadIdx.x == 0) {
-        for (int i = 0; i < count; ++i) {
-            printf("%lu\t", idxs[i]);
-            if (i % 10 == 9)
-                printf("\n");
-        }
-        printf("\n");
-    }
-}
-
 template <
     typename InProvider,
     FloatType FT>
@@ -185,8 +173,6 @@ void floatCompressSparseDevice(
     uint32_t maxSize,
     OutProvider& outProvider,
     uint32_t* outSize_dev,
-    void** out_host,
-    const uint32_t* inSize_host,
     cudaStream_t stream) {
 
     // not allowed in float mode
@@ -203,24 +189,25 @@ void floatCompressSparseDevice(
       sizeof(uint8_t) * rowStride * numInBatch,
       stream));
 
-    #define RUN_BITMAP(FT) \
-    do { \
+    #define RUN_BITMAP(FT)                                             \
+    do {                                                               \
         auto& props = getCurrentDeviceProperties();                    \
         int maxBlocksPerSM = 0;                                        \
         CUDA_VERIFY(cudaOccupancyMaxActiveBlocksPerMultiprocessor(     \
             &maxBlocksPerSM,                                           \
-            generate_bitmap<InProvider, FT>,   \
+            generate_bitmap<InProvider, FT>,                           \
             kBlock,                                                    \
             0));                                                       \
         uint32_t maxGrid = maxBlocksPerSM * props.multiProcessorCount; \
         uint32_t perBatchGrid = 4 * divUp(maxGrid, numInBatch);        \
-        auto grid = dim3(perBatchGrid, numInBatch);                     \
-        generate_bitmap<InProvider, FT><<<grid, kBlock, 0, stream>>>( \
-            inProvider, bitmaps.data(), rowStride \
-        ); \
-        bitmap_bytes_to_bits<OutProvider, InProvider><<<grid, kBlock, 0, stream>>>( \
-            bitmaps.data(), outProvider, inProvider, rowStride \
-        ); \
+        auto grid = dim3(perBatchGrid, numInBatch);                    \
+        generate_bitmap<InProvider, FT><<<grid, kBlock, 0, stream>>>(  \
+            inProvider, bitmaps.data(), rowStride                      \
+        );                                                             \
+        bitmap_bytes_to_bits<OutProvider, InProvider>                  \
+            <<<grid, kBlock, 0, stream>>>(                             \
+                bitmaps.data(), outProvider, inProvider, rowStride     \
+        );                                                             \
     } while(false);
 
     switch (config.floatType) {
@@ -241,12 +228,11 @@ void floatCompressSparseDevice(
         break;
     }
 
-    cudaDeviceSynchronize();
-
     auto sparseIdx = res.alloc<uint32_t>(stream, numInBatch * rowStride);
     auto sparseBatchSizes = res.alloc<uint32_t>(stream, numInBatch);
     auto batchPointers = res.alloc<uintptr_t>(stream, numInBatch);
     
+    cudaDeviceSynchronize();
     for (int batch = 0; batch < numInBatch; ++batch){
         thrust::exclusive_scan(
             thrust::device,
@@ -257,36 +243,40 @@ void floatCompressSparseDevice(
 
     cudaDeviceSynchronize();
 
-    #define RUN_COMPRESS(FT) \
-    do { \
+    #define RUN_COMPRESS(FT)                                           \
+    do {                                                               \
         auto& props = getCurrentDeviceProperties();                    \
         int maxBlocksPerSM = 0;                                        \
         CUDA_VERIFY(cudaOccupancyMaxActiveBlocksPerMultiprocessor(     \
             &maxBlocksPerSM,                                           \
-            fill_comp_input<InProvider, FT>,          \
+            fill_comp_input<InProvider, FT>,                           \
             kBlock,                                                    \
             0));                                                       \
         uint32_t maxGrid = maxBlocksPerSM * props.multiProcessorCount; \
         uint32_t perBatchGrid = 4 * divUp(maxGrid, numInBatch);        \
-        auto grid = dim3(perBatchGrid, numInBatch);                     \
+        auto grid = dim3(perBatchGrid, numInBatch);                    \
         auto sparseData = res.alloc<typename FloatTypeInfo<FT>::WordT>(\
-            stream, numInBatch * rowStride); \
+            stream, numInBatch * rowStride);                           \
         fill_comp_input<InProvider, FT><<<grid, kBlock, 0, stream>>> ( \
-            inProvider, sparseData.data(), bitmaps.data(), sparseIdx.data(), \
-            sparseBatchSizes.data(), (void**) batchPointers.data(), rowStride \
-        ); \
-        \
-        auto sparseFloatOutProvider = SparseFloatOutProvider<FT, OutProvider, InProvider>(\
-            outProvider, inProvider \
-        ); \
-        auto sparseFloatInProvider = BatchProviderPointer((void**) batchPointers.data(), \
-            sparseBatchSizes.data()); \
-        floatCompressDevice( \
-            res, config, numInBatch, sparseFloatInProvider, maxSize, \
-            sparseFloatOutProvider, outSize_dev, stream \
-        ); \
-        \
-        addBitmapToOutSizes<<<grid, kBlock, 0, stream>>>(inProvider, outSize_dev);\
+            inProvider, sparseData.data(), bitmaps.data(),             \
+            sparseIdx.data(), sparseBatchSizes.data(),                 \
+            (void**) batchPointers.data(), rowStride                   \
+        );                                                             \
+        auto sparseFloatOutProvider = SparseFloatOutProvider           \
+            <FT, OutProvider, InProvider>(                             \
+            outProvider, inProvider                                    \
+        );                                                             \
+        auto sparseFloatInProvider = BatchProviderPointer(             \
+            (void**) batchPointers.data(),                             \
+            sparseBatchSizes.data());                                  \
+        floatCompressDevice(                                           \
+            res, config, numInBatch, sparseFloatInProvider, maxSize,   \
+            sparseFloatOutProvider, outSize_dev, stream                \
+        );                                                             \
+                                                                       \
+        addBitmapToOutSizes<<<grid, kBlock, 0, stream>>>(              \
+            inProvider, outSize_dev                                    \
+        );                                                             \
     } while(false);
 
     switch (config.floatType) {
