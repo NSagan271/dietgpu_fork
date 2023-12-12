@@ -4,6 +4,7 @@
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  */
+#pragma once
 
 #include "dietgpu/ans/GpuANSCodec.h"
 #include "dietgpu/ans/GpuANSDecode.cuh"
@@ -868,6 +869,56 @@ __global__ void getANSOutOffset(InProvider inProvider,
     ansOutOffset[batch] = headerIn->getFirstCompSegmentBytes();
   }
 }
+
+// template <
+//     typename OutProvider,
+//     FloatType FT,
+//     int Threads>
+// __global__ void recoverSparse(
+//     OutProvider outProvider,
+//     OutProvider bitmap,
+//     OutProvider outProviderSparse) {
+//   using FTI = FloatTypeInfo<FT>;
+//   using WordT = typename FTI::WordT;
+//   using CompT = typename FTI::CompT;
+//   using NonCompT = typename FTI::NonCompT;
+
+//   int batch = blockIdx.y;
+
+//   auto curOut = (WordT*)outProviderSparse.getBatchStart(batch);
+
+//   using Scan = cub::BlockScan<T, Threads>;
+//   __shared__ typename Scan::TempStorage smem;
+
+//   T prefix = 0;
+//   T total = 0;
+  
+//   using Scan = cub::BlockScan<FT, Threads>;
+//   __shared__ typename Scan::TempStorage smem;
+
+//   int tid = threadIdx.x;
+//   int blockIdx_x = blockIdx.x;
+//   int block_offset = blockIdx_x * Threads;
+
+//   FT data;
+  
+//   if (block_offset + tid < size) {
+//       // Load data into shared memory
+//       data = input[block_offset + tid];
+//   } else {
+//       // Set data to a default value if out of bounds
+//       data = 0;
+//   }
+
+//   // Perform exclusive scan within the block
+//   Scan(smem).ExclusiveScan(data, data);
+
+//   // Write the result back to the output array
+//   if (block_offset + tid < size) {
+//       output[block_offset + tid] = data;
+//   }
+// }
+
 
 template <typename InProvider, typename OutProvider>
 FloatDecompressStatus floatDecompressDevice(

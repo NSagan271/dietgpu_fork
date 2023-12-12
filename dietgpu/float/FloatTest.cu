@@ -143,7 +143,7 @@ std::vector<typename FloatTypeInfo<FT>::WordT> generateFloats(int num) {
 
 
 template <FloatType FT>
-std::vector<typename FloatTypeInfo<FT>::WordT> generateSparseFloats(int num, std::vector<uint32_t>& bitmap) {
+std::vector<typename FloatTypeInfo<FT>::WordT> generateSparseFloats(int num, float sparsityPercent=0.5) {
   std::mt19937 gen(10 + num);
   std::normal_distribution<float> dist;
 
@@ -155,17 +155,13 @@ std::vector<typename FloatTypeInfo<FT>::WordT> generateSparseFloats(int num, std
 
   // Generate a random number between 0 and 1
   auto out = std::vector<typename FloatTypeInfo<FT>::WordT>(num);
-  int cnt = 0;
   for (auto& v : out) {
     v = GenerateFloat<FT>::gen(dist(gen));
 
     double random_number = distribution(generator);
-    if(random_number < 0.5) {
+    if(random_number < sparsityPercent) {
       v = 0.0;
-    } else {
-      bitmap[cnt] = 1;
     }
-    cnt++;
   }
 
   return out;
@@ -183,164 +179,38 @@ void runBatchPointerTest(
   auto stream = CudaStream::makeNonBlocking();
 
 
-  std::ofstream outputFile("/home/ee274_mfguo_nsagan/bench/dietgpu_fork/dietgpu/float/sparse_cuda_50.txt", std::ios::app);
+  std::ofstream outputFile("/home/ee274_mfguo_nsagan/nsagan/dietgpu_fork/dietgpu/float/benchmark_data/sparse_cuda_nsagan.txt", std::ios::app);
   
 
   int numInBatch = batchSizes.size();
   
   uint32_t totalSize = 0;
   
-
-  
-  
-  auto newBatchSizes = std::vector<uint32_t>(numInBatch, 0);
-  
-  
-
   uint32_t maxSize = 0;
   for (auto v : batchSizes) {
     totalSize += v;
     maxSize = std::max(maxSize, v);
   }
-  std::vector<uint32_t> bitmaps(totalSize, 0);
-  auto origSparse = generateSparseFloats<FT>(totalSize, bitmaps);
-  int cnt = 0;
-  int cntSparse = 0;
-  
-  for (int bi = 0; bi < batchSizes.size(); ++bi) {
-    int v = batchSizes[bi];
-    for (int i = 0; i < v; ++i) {
-      if (bitmaps[cntSparse] == 1) {
-        // printf("cntSparse: %d\n", cntSparse);
-        cnt += 1;
-        newBatchSizes[bi] += 1;
-      }
-      cntSparse += 1; 
-    }
-  }
-  std::vector<typename FloatTypeInfo<FT>::WordT> orig(cnt, 0);
-  uint32_t newTotalSize = cnt;
-  // std::cout<<"newTotalSize: "<<cnt<<std::endl;
-  
-  auto orig_dev = res.copyAlloc(stream, orig);
-  typename FloatTypeInfo<FT>::WordT* origSparse_dev;
-  cudaMalloc((void **)&origSparse_dev, sizeof(typename FloatTypeInfo<FT>::WordT) * totalSize);
-  cudaMemcpy(origSparse_dev, origSparse.data(), sizeof(typename FloatTypeInfo<FT>::WordT) * totalSize, cudaMemcpyHostToDevice);
-  int* bitmaps_dev;
-  cudaMalloc((void **)&bitmaps_dev, sizeof(int) * totalSize);
-  cudaMemcpy(bitmaps_dev, bitmaps.data(), sizeof(int) * totalSize, cudaMemcpyHostToDevice);
-  
 
-  // auto origSparse_dev = res.copyAlloc(stream, origSparse);
-  // auto bitmaps_dev = res.copyAlloc(stream, bitmaps);
-  int* sparseIdx;
-  cudaMalloc((void **)&sparseIdx, sizeof(int) * totalSize);
-  int* input_device_idx_result;
-  cudaMalloc((void **)&input_device_idx_result, sizeof(int) * totalSize);
+  auto origSparse = generateSparseFloats<FT>(totalSize);
+  
+  auto origSparse_dev = res.copyAlloc<typename FTI::WordT>(stream, origSparse);
 
   auto start = std::chrono::system_clock::now();
-  thrust::exclusive_scan(thrust::device, bitmaps_dev, bitmaps_dev + totalSize, sparseIdx, 0);
-  
-  cudaDeviceSynchronize();
-  if (totalSize < 128) {
-    find_index<<<1, totalSize>>>(sparseIdx, totalSize, input_device_idx_result);
-  }
-  else {
-    find_index<<<totalSize / 128 + 1, 128>>>(sparseIdx, totalSize, input_device_idx_result);
-  }
-  cudaDeviceSynchronize();
 
-  if (bitmaps[totalSize - 1] == 1) {
-    fill_last_bit_with_int<<<1, 1>>>(totalSize - 1, input_device_idx_result, newTotalSize - 1);
-  }
-  cudaDeviceSynchronize();
-
-  if (newTotalSize < 128) {
-    fill_origin_dense<<<1, newTotalSize>>>(input_device_idx_result, newTotalSize, origSparse_dev, orig_dev.data());
-  }
-  else {
-    fill_origin_dense<<<newTotalSize / 128 + 1, 128>>>(input_device_idx_result, newTotalSize, origSparse_dev, orig_dev.data());
-  }
-  cudaDeviceSynchronize();
-
-
-
-  // // if (bitmaps[totalSize - 1] == 1) {
-  // //   fill_last_bit<<<1, 1>>>(origSparse_dev.data(), orig_dev.data(), totalSize - 1, newTotalSize - 1);
-  // // }
-  // // cudaDeviceSynchronize();
-
-  
-  // auto start = std::chrono::system_clock::now();
-  // cnt = 0;
-  // for (int i = 0; i < totalSize; ++i) {
-  //   if (bitmaps[i] == 1) {
-
-  //     orig[cnt] = origSparse[i];
-  //     cnt += 1;
-  //   }
-  // }
-  // auto orig_dev = res.copyAlloc(stream, orig);
-
-  
-  // for (int i = 0; i < totalSize; ++i) {
-  //   if (bitmaps[i] == 1) {
-  //     std::cout<<"i "<<i<<std::endl;
-  //   }
-  // }
-  // orig[cnt] = origSparse[cntSparse];
-  // std::cout<<"newTotalSize: "<<cnt<<std::endl;
-  // std::cout<<"totalSize: "<<totalSize<<std::endl;
-  // orig.resize(cnt);
-  
-  // std::vector<typename FloatTypeInfo<FT>::WordT>
-
-  
-  
-  auto inPtrs = std::vector<const void*>(newBatchSizes.size());
+  auto inPtrs = std::vector<const void*>(batchSizes.size());
   {
     uint32_t curOffset = 0;
     for (int i = 0; i < inPtrs.size(); ++i) {
-      // typename FTI::WordT* inPtr;
-      // inPtr = (typename FTI::WordT*)malloc(batchSizes[i] * sizeof(typename FTI::WordT));
-      // typename FTI::WordT* inPtrHead = inPtr;
-      // inPtrs[i] = (const typename FTI::WordT*)orig_dev.data() + curOffset;
-      // curOffset += batchSizes[i];
-      // for (int j = 0; j < batchSizes[i]; ++j) {
-      //   if (abs(*((const typename FTI::WordT*)orig_dev.data() + curOffset + j) - 0.0) < 1e-5) {
-      //     newBatchSizes[i] += 1;
-      //   } else{
-      //     inPtr[newBatchSizes[i]] = *((const typename FTI::WordT*)orig_dev.data() + curOffset + j);
-      //   }
-      // }
-      // std::cout<<"newBatchSizes[i]: "<<newBatchSizes[i]<<std::endl;
-      inPtrs[i] = (const typename FTI::WordT*)orig_dev.data() + curOffset;
-      curOffset += newBatchSizes[i];
-      
-      // newinPtrs[i] = (const typename FTI::WordT*)inPtrHead;
+      inPtrs[i] = (const typename FTI::WordT*) origSparse_dev.data() + curOffset;
+      curOffset += batchSizes[i];
     }
   }
 
-  uint32_t newMaxSize = 0;
-  // uint32_t newTotalSize = 0;
-  for (auto v : newBatchSizes) {
-    // std::cout<<"v: "<<v<<std::endl;
-    // newTotalSize += v;
-    newMaxSize = std::max(newMaxSize, v);
-  }
-  
-
-  // std::cout<<"newTotalSize: "<<newTotalSize<<std::endl;
-  // std::cout<<"totalSize: "<<totalSize<<std::endl;
-
-  
-  
-
-  auto maxCompressedSize = getMaxFloatCompressedSize(FT, newMaxSize);
-
+  auto maxCompressedSize = getMaxSparseFloatCompressedSize(FT, maxSize);
   auto enc_dev = res.alloc<uint8_t>(stream, numInBatch * maxCompressedSize);
 
-  auto encPtrs = std::vector<void*>(newBatchSizes.size());
+  auto encPtrs = std::vector<void*>(batchSizes.size());
   {
     for (int i = 0; i < inPtrs.size(); ++i) {
       encPtrs[i] = (uint8_t*)enc_dev.data() + i * maxCompressedSize;
@@ -350,34 +220,36 @@ void runBatchPointerTest(
   auto outBatchSize_dev = res.alloc<uint32_t>(stream, numInBatch);
   auto compConfig =
       FloatCompressConfig(FT, ANSCodecConfig(probBits), false, true);
+
   // std::cout<<"start floatCompress"<<std::endl;
-  floatCompress(
+  floatCompressSparse(
       res,
       compConfig,
       numInBatch,
       inPtrs.data(),
-      newBatchSizes.data(),
+      batchSizes.data(),
       encPtrs.data(),
       outBatchSize_dev.data(),
       stream);
+
+    cudaDeviceSynchronize();
   // std::cout<<"after floatCompress"<<std::endl;
 
   auto end = std::chrono::system_clock::now();
-    
+
   std::chrono::duration<double> elapsed_seconds = end-start;
   std::time_t end_time = std::chrono::system_clock::to_time_t(end);
 
-  
-
   // Decode data
-  auto dec_dev = res.alloc<typename FTI::WordT>(stream, newTotalSize);
+  auto start2 = std::chrono::system_clock::now();
+  auto dec_dev = res.alloc<typename FTI::WordT>(stream, totalSize);
 
-  auto decPtrs = std::vector<void*>(newBatchSizes.size());
+  auto decPtrs = std::vector<void*>(batchSizes.size());
   {
     uint32_t curOffset = 0;
     for (int i = 0; i < inPtrs.size(); ++i) {
       decPtrs[i] = (typename FTI::WordT*)dec_dev.data() + curOffset;
-      curOffset += newBatchSizes[i];
+      curOffset += batchSizes[i];
     }
   }
 
@@ -387,143 +259,36 @@ void runBatchPointerTest(
   auto decompConfig =
       FloatDecompressConfig(FT, ANSCodecConfig(probBits), false, true);
 
-  auto start2 = std::chrono::system_clock::now();
-  floatDecompress(
+  floatDecompressSparse(
       res,
       decompConfig,
       numInBatch,
       (const void**)encPtrs.data(),
       decPtrs.data(),
-      newBatchSizes.data(),
+      batchSizes.data(),
       outSuccess_dev.data(),
       outSize_dev.data(),
       stream);
 
-  // std::cout<<"after floatDecompress"<<std::endl;
-
-  
-
-  
-
-  // double overallDuration = endTime - startTime;
+  cudaDeviceSynchronize();
 
   auto end2 = std::chrono::system_clock::now();
     
   std::chrono::duration<double> elapsed_seconds2 = end2-start2;
   
-  // std::time_t end_time2 = std::chrono::system_clock::to_time_t(end2);
-
-
-  // if (outputFile.is_open()) {
-  //     // Write the current time to the file
-  //     float compressionRatio = 0;
-  //     if (idx == 1) {
-  //       compressionRatio = (11 + 2.7) / 16;
-  //     }
-  //     else if (idx == 2) {
-  //       compressionRatio = (8 + 2.7) / 16;
-  //     }
-  //     else if (idx == 3) {
-  //       compressionRatio = (24 + 2.7) / 32;
-  //     }
-  //     else if (idx == 4) {
-  //       compressionRatio = (48 + 2.7*2) / 64;
-  //     }
-  //     outputFile << idx <<" "<< 9 << " " << compressionRatio<< " "<<numInBatch <<" "<<elapsed_seconds.count()<<" "<<elapsed_seconds2.count() << std::endl;
-
-  //     // Close the file
-  //     outputFile.close();
-  //     std::cout << "Current time has been written to 'time.txt'" << std::endl;
-  // } else {
-  //     std::cerr << "Error opening the file 'time.txt'" << std::endl;
-  // }
-
   auto outSuccess = outSuccess_dev.copyToHost(stream);
   auto outSize = outSize_dev.copyToHost(stream);
 
   for (int i = 0; i < outSuccess.size(); ++i) {
     EXPECT_TRUE(outSuccess[i]);
-    EXPECT_EQ(outSize[i], newBatchSizes[i]);
+    EXPECT_EQ(outSize[i], batchSizes[i]);
   }
 
-  // auto dec = dec_dev.copyToHost(stream);
-  int *device_input;
-  // long rounded_length = nextPow2(totalSize);
-  // std::cout<<"rounded_length: "<<rounded_length<<std::endl;
-  cudaMalloc((void **)&device_input, sizeof(int) * totalSize);
-  int *device_result;
-  int *device_output;
-  device_output = (int *)malloc(sizeof(int) * totalSize);
-  cudaMalloc((void **)&device_result, sizeof(int) * totalSize);
-  int *device_idx_result;
-  cudaMalloc((void **)&device_idx_result, sizeof(int) * totalSize);
-  cudaMemset(device_input, 0, sizeof(int) * totalSize);
-  cudaMemcpy(device_input, bitmaps.data(), totalSize * sizeof(int), cudaMemcpyHostToDevice);
+  auto decSparseFinal = (typename FloatTypeInfo<FT>::WordT *)malloc(sizeof(typename FloatTypeInfo<FT>::WordT) * totalSize);
 
-  typename FloatTypeInfo<FT>::WordT* decSparseDev;
-  typename FloatTypeInfo<FT>::WordT* decSparseFinal;
-  cudaMalloc((void **)&decSparseDev, sizeof(typename FloatTypeInfo<FT>::WordT) * totalSize);
-  cudaMemset(decSparseDev, 0, sizeof(typename FloatTypeInfo<FT>::WordT) * totalSize);
-  decSparseFinal = (typename FloatTypeInfo<FT>::WordT *)malloc(sizeof(typename FloatTypeInfo<FT>::WordT) * totalSize);
-  memset(decSparseFinal, 0, sizeof(typename FloatTypeInfo<FT>::WordT) * totalSize);
+  cudaMemcpy(decSparseFinal, dec_dev.data(), sizeof(typename FloatTypeInfo<FT>::WordT) * totalSize, cudaMemcpyDeviceToHost);
 
-  // exclusive_scan(device_input, rounded_length, device_result);
-  auto start3 = std::chrono::system_clock::now();
-  thrust::exclusive_scan(thrust::device, device_input, device_input + totalSize, device_result, 0);
-  cudaDeviceSynchronize();
-  if (totalSize < 128) {
-    find_index<<<1, totalSize>>>(device_result, totalSize, device_idx_result);
-  }
-  else {
-    
-    find_index<<<totalSize / 128 + 1, 128>>>(device_result, totalSize, device_idx_result);
-  }
-  cudaDeviceSynchronize();
-
-  if (bitmaps[totalSize - 1] == 1) {
-    fill_last_bit_with_int<<<1, 1>>>(totalSize - 1, device_idx_result, newTotalSize - 1);
-  }
-  cudaDeviceSynchronize();
-
-  
-  
-  // auto decSparseDev = res.copyAlloc(stream, decSparse);
-
-  // std::cout<<"newTotalSize: "<<newTotalSize<<std::endl;
-  if (newTotalSize < 128) {
-    
-    fill_output_sparse<typename FloatTypeInfo<FT>::WordT><<<1, newTotalSize>>>(device_idx_result, newTotalSize, decSparseDev, dec_dev.data());
-  }
-  else {
-    fill_output_sparse<typename FloatTypeInfo<FT>::WordT><<<newTotalSize / 128 + 1, 128>>>(device_idx_result, newTotalSize, decSparseDev, dec_dev.data());
-  }
-  cudaDeviceSynchronize();
-  auto end3 = std::chrono::system_clock::now();
-  std::chrono::duration<double> elapsed_seconds3 = end3-start3;
-  cudaMemcpy(decSparseFinal, decSparseDev, sizeof(typename FloatTypeInfo<FT>::WordT) * totalSize, cudaMemcpyDeviceToHost);
-  // auto decSparseFinal = decSparseDev.copyToHost(stream);
-  cudaDeviceSynchronize();
-  // if (bitmaps[totalSize - 1] == 1) {
-  //   decSparse[totalSize - 1] = dec[newTotalSize - 1];
-  // }
   std::vector<typename FloatTypeInfo<FT>::WordT> decSparse(decSparseFinal, decSparseFinal + totalSize);
-  // decSparseFinal.resize(totalSize);
-  // // find_index(device_result, rounded_length, device_result);
-  // cudaMemcpy(device_output, device_idx_result, rounded_length * sizeof(int), cudaMemcpyDeviceToHost);
-  // if (bitmaps[totalSize - 1] == 1) {
-  //   device_output[newTotalSize - 1] = totalSize - 1;
-  // }
-  // // std::cout<<"after scan"<<std::endl;
-  
-
-  // for (int i = 0; i < newTotalSize; ++i) {
-  //   // printf("device_output[%d]: %d\n", i, device_output[i]);
-  //   decSparse[device_output[i]] = dec[i];
-  // }
-  
-  // fill_output_sparse<<<1, newTotalSize>>>(device_output, newTotalSize, decSparseDev, dec_dev.data());
-  // cudaDeviceSynchronize();
-  // decSparse = decSparseDev.copyToHost(stream);
 
 
   // get empirical compression ratio
@@ -540,9 +305,8 @@ void runBatchPointerTest(
 
   double elapsed_seconds_r = std::chrono::duration_cast<std::chrono::microseconds>(elapsed_seconds).count() / 1e6;
   double elapsed_seconds2_r = std::chrono::duration_cast<std::chrono::microseconds>(elapsed_seconds2).count() / 1e6;
-  double elapsed_seconds3_r = std::chrono::duration_cast<std::chrono::microseconds>(elapsed_seconds3).count() / 1e6;
   float bw1 = (inSizeTotal / 1e9) / elapsed_seconds_r;
-  float bw2 = (inSizeTotal / 1e9) / (elapsed_seconds2_r+elapsed_seconds3_r);
+  float bw2 = (inSizeTotal / 1e9) / (elapsed_seconds2_r);
 
   if (outputFile.is_open()) {
       // Write the current time to the file
@@ -585,321 +349,7 @@ void runBatchPointerTest(
   }
 
   EXPECT_EQ(origSparse, decSparse);
-
-  cudaFree(device_input);
-  cudaFree(device_result);
-  cudaFree(device_idx_result);
-  cudaFree(decSparseDev); 
-  cudaFree(sparseIdx);
-  cudaFree(input_device_idx_result);
-  cudaFree(bitmaps_dev);
-  cudaFree(origSparse_dev);
-
 }
-
-
-// template <FloatType FT>
-// void runBatchPointerTest(
-//     StackDeviceMemory& res,
-//     int probBits,
-//     const std::vector<uint32_t>& batchSizes,
-//     int idx) {
-//   using FTI = FloatTypeInfo<FT>;
-
-//   // run on a different stream to test stream assignment
-//   auto stream = CudaStream::make();
-
-
-//   std::ofstream outputFile("/home/ee274_mfguo_nsagan/bench/dietgpu_fork/dietgpu/float/time_comp_decompress_sparse50.txt", std::ios::app);
-
-//   int numInBatch = batchSizes.size();
-  
-//   uint32_t totalSize = 0;
-//   uint32_t maxSize = 0;
-//   for (auto v : batchSizes) {
-//     totalSize += v;
-//     maxSize = std::max(maxSize, v);
-//   }
-
-  
-//   auto maxCompressedSize = getMaxFloatCompressedSize(FT, maxSize);
-//   // const std::string filename = "/home/ee274_mfguo_nsagan/mfguo/dietgpu_fork/dietgpu/float/num_comet.trace.fpc"; // Replace with your file name
-
-
-//   // std::ifstream inputFile(filename, std::ios::binary);
-
-//   // if (!inputFile) {
-//   //     std::cerr << "Failed to open file: " << filename << std::endl;
-//   // }
-
-//   // // Create a vector to hold the float64 data
-//   // std::vector<double> data(totalSize);
-
-
-        
-
-//   // auto maxCompressedSize = getMaxFloatCompressedSize(FT, maxSize);
-
-
-//   // // Read and process data in batches.
-//   // while (true) {
-//   //     // Read a batch of data from the file
-//   //     inputFile.read(data.data(), totalSize * 16);
-      
-//   //     // Check how many elements were actually read
-//   //     std::streamsize bytesRead = inputFile.gcount();
-//   //     if (bytesRead == 0) {
-//   //         break; // End of file reached
-//   //     }
-
-
-//   //     auto orig = data;
-//   //     auto orig_dev = res.copyAlloc(stream, orig);
-
-//   //     auto inPtrs = std::vector<const void*>(batchSizes.size());
-//   //     {
-//   //       uint32_t curOffset = 0;
-//   //       for (int i = 0; i < inPtrs.size(); ++i) {
-//   //         inPtrs[i] = (const typename FTI::WordT*)orig_dev.data() + curOffset;
-//   //         curOffset += batchSizes[i];
-//   //       }
-//   //     }
-
-//   //     auto enc_dev = res.alloc<uint8_t>(stream, numInBatch * maxCompressedSize);
-
-//   //     auto encPtrs = std::vector<void*>(batchSizes.size());
-//   //     {
-//   //       for (int i = 0; i < inPtrs.size(); ++i) {
-//   //         encPtrs[i] = (uint8_t*)enc_dev.data() + i * maxCompressedSize;
-//   //       }
-//   //     }
-
-//   //     auto outBatchSize_dev = res.alloc<uint32_t>(stream, numInBatch);
-
-//   //     auto compConfig =
-//   //         FloatCompressConfig(FT, ANSCodecConfig(probBits), false, true);
-      
-//   //     floatCompress(
-//   //         res,
-//   //         compConfig,
-//   //         numInBatch,
-//   //         inPtrs.data(),
-//   //         batchSizes.data(),
-//   //         encPtrs.data(),
-//   //         outBatchSize_dev.data(),
-//   //         stream);
-      
-//   //     // Decode data
-//   //     auto dec_dev = res.alloc<typename FTI::WordT>(stream, totalSize);
-
-//   //     auto decPtrs = std::vector<void*>(batchSizes.size());
-//   //     {
-//   //       uint32_t curOffset = 0;
-//   //       for (int i = 0; i < inPtrs.size(); ++i) {
-//   //         decPtrs[i] = (typename FTI::WordT*)dec_dev.data() + curOffset;
-//   //         curOffset += batchSizes[i];
-//   //       }
-//   //     }
-
-//   //     auto outSuccess_dev = res.alloc<uint8_t>(stream, numInBatch);
-//   //     auto outSize_dev = res.alloc<uint32_t>(stream, numInBatch);
-
-//   //     auto decompConfig =
-//   //         FloatDecompressConfig(FT, ANSCodecConfig(probBits), false, true);
-
-//   //     // printf("data compress config\n");
-//   //     // printf("data compress\n");
-
-//   //     floatDecompress(
-//   //         res,
-//   //         decompConfig,
-//   //         numInBatch,
-//   //         (const void**)encPtrs.data(),
-//   //         decPtrs.data(),
-//   //         batchSizes.data(),
-//   //         outSuccess_dev.data(),
-//   //         outSize_dev.data(),
-//   //         stream);
-
-//   //     auto outSuccess = outSuccess_dev.copyToHost(stream);
-//   //     auto outSize = outSize_dev.copyToHost(stream);
-
-//   //     for (int i = 0; i < outSuccess.size(); ++i) {
-//   //       EXPECT_TRUE(outSuccess[i]);
-//   //       EXPECT_EQ(outSize[i], batchSizes[i]);
-//   //     }
-
-//   //     auto dec = dec_dev.copyToHost(stream);
-
-//   //     for (int i = 0; i < orig.size(); ++i) {
-//   //       if (orig[i] != dec[i]) {
-//   //         printf(
-//   //             "mismatch at %d / %d: 0x%08X 0x%08X\n",
-//   //             i,
-//   //             (int)orig.size(),
-//   //             orig[i],
-//   //             dec[i]);
-//   //         break;
-//   //       }
-//   //     }
-
-//   //     EXPECT_EQ(orig, dec);
-
-//   // }
-
-//   auto orig = generateFloats<FT>(totalSize);
-//   auto orig_dev = res.copyAlloc(stream, orig);
-
-//   auto start = std::chrono::system_clock::now();
-//   auto inPtrs = std::vector<const void*>(batchSizes.size());
-//   {
-//     uint32_t curOffset = 0;
-//     for (int i = 0; i < inPtrs.size(); ++i) {
-//       inPtrs[i] = (const typename FTI::WordT*)orig_dev.data() + curOffset;
-//       curOffset += batchSizes[i];
-//     }
-//   }
-
-//   auto enc_dev = res.alloc<uint8_t>(stream, numInBatch * maxCompressedSize);
-
-//   auto encPtrs = std::vector<void*>(batchSizes.size());
-//   {
-//     for (int i = 0; i < inPtrs.size(); ++i) {
-//       encPtrs[i] = (uint8_t*)enc_dev.data() + i * maxCompressedSize;
-//     }
-//   }
-
-//   auto outBatchSize_dev = res.alloc<uint32_t>(stream, numInBatch);
-
-//   auto compConfig =
-//       FloatCompressConfig(FT, ANSCodecConfig(probBits), false, true);
-
-//   floatCompress(
-//       res,
-//       compConfig,
-//       numInBatch,
-//       inPtrs.data(),
-//       batchSizes.data(),
-//       encPtrs.data(),
-//       outBatchSize_dev.data(),
-//       stream);
-  
-
-//   cudaDeviceSynchronize();
-
-//   auto end = std::chrono::system_clock::now();
-    
-//   std::chrono::duration<double> dur1 = end-start;
-//   double elapsed_seconds = std::chrono::duration_cast<std::chrono::microseconds>(dur1).count() / 1e6;
-
-//   std::time_t end_time = std::chrono::system_clock::to_time_t(end);
-
-//   // Decode data
-//   auto dec_dev = res.alloc<typename FTI::WordT>(stream, totalSize);
-
-//   auto decPtrs = std::vector<void*>(batchSizes.size());
-//   {
-//     uint32_t curOffset = 0;
-//     for (int i = 0; i < inPtrs.size(); ++i) {
-//       decPtrs[i] = (typename FTI::WordT*)dec_dev.data() + curOffset;
-//       curOffset += batchSizes[i];
-//     }
-//   }
-
-//   auto outSuccess_dev = res.alloc<uint8_t>(stream, numInBatch);
-//   auto outSize_dev = res.alloc<uint32_t>(stream, numInBatch);
-
-//   auto decompConfig =
-//       FloatDecompressConfig(FT, ANSCodecConfig(probBits), false, true);
-
-//   // printf("data compress config\n");
-//   // printf("data compress\n");
-
-//  auto start2 = std::chrono::system_clock::now();
-
-//   floatDecompress(
-//       res,
-//       decompConfig,
-//       numInBatch,
-//       (const void**)encPtrs.data(),
-//       decPtrs.data(),
-//       batchSizes.data(),
-//       outSuccess_dev.data(),
-//       outSize_dev.data(),
-//       stream);
-
-
-
-//   cudaDeviceSynchronize();
-//   auto end2 = std::chrono::system_clock::now();
-    
-//   std::chrono::duration<double> dur2 = end2-start2;
-//   double elapsed_seconds2 = std::chrono::duration_cast<std::chrono::microseconds>(dur2).count() / 1e6;
-//   std::time_t end_time2 = std::chrono::system_clock::to_time_t(end2);
-
-//   // get empirical compression ratio
-//   auto outSizeComp = outBatchSize_dev.copyToHost(stream);
-//   float totalNFloats = 0;
-//   float outSizeTotal = 0;
-//   for (int i = 0; i < numInBatch; ++i) {
-//     outSizeTotal += outSizeComp[i];
-//     totalNFloats += batchSizes[i];
-//   }
-//   float inSizeTotal = totalNFloats * sizeof(typename FTI::WordT);
-
-//   float compressionRatio = (outSizeTotal) / inSizeTotal;
-
-//   float bw1 = (inSizeTotal / 1e9) / elapsed_seconds;
-//   float bw2 = (inSizeTotal / 1e9) / elapsed_seconds2;
-
-//   if (outputFile.is_open()) {
-//       // Write the current time to the file
-//       // float compressionRatio = 0;
-//       // if (idx == 1) {
-//       //   compressionRatio = (11 + 2.7) / 16;
-//       // }
-//       // else if (idx == 2) {
-//       //   compressionRatio = (8 + 2.7) / 16;
-//       // }
-//       // else if (idx == 3) {
-//       //   compressionRatio = (24 + 2.7) / 32;
-//       // }
-//       // else if (idx == 4) {
-//       //   compressionRatio = (48 + 2.7*2) / 64;
-//       // }
-//       outputFile << idx <<" "<< 9 << " " << compressionRatio<< " "<< totalNFloats / 1e6 <<" "<<bw1<<" "<<bw2 << std::endl;
-
-//       // Close the file
-//       outputFile.close();
-//       std::cout << "Current time has been written to 'time.txt'" << std::endl;
-//   } else {
-//       std::cerr << "Error opening the file 'time.txt'" << std::endl;
-//   }
-
-//   auto outSuccess = outSuccess_dev.copyToHost(stream);
-//   auto outSize = outSize_dev.copyToHost(stream);
-
-//   for (int i = 0; i < outSuccess.size(); ++i) {
-//     EXPECT_TRUE(outSuccess[i]);
-//     EXPECT_EQ(outSize[i], batchSizes[i]);
-//   }
-
-//   auto dec = dec_dev.copyToHost(stream);
-
-//   for (int i = 0; i < orig.size(); ++i) {
-//     if (orig[i] != dec[i]) {
-//       printf(
-//           "mismatch at %d / %d: 0x%08X 0x%08X\n",
-//           i,
-//           (int)orig.size(),
-//           orig[i],
-//           dec[i]);
-//       break;
-//     }
-//   }
-
-//   EXPECT_EQ(orig, dec);
-// }
 
 void runBatchPointerTest(
     StackDeviceMemory& res,
@@ -949,7 +399,6 @@ TEST(FloatTest, Batch) {
   for (auto ft :
        {FloatType::kFloat16, FloatType::kBFloat16, FloatType::kFloat32,FloatType::kFloat64}) {
         // FloatType::kFloat16, FloatType::kBFloat16, FloatType::kFloat32, 
-        // {FloatType::kFloat64}) {
     idx++;
     for (auto numInBatch : {1}) {
       for (auto probBits : {9}) {
@@ -958,6 +407,7 @@ TEST(FloatTest, Batch) {
         // for (int multipleOf : {1500000}) {
         
         for (int multipleOf : {100000, 150000, 1000000, 1500000, 10000000, 15000000}) {
+
           // , 150000, 1000000, 1500000, 10000000, 15000000, 10000000
 
         

@@ -89,8 +89,27 @@ struct __align__(16) GpuFloatHeader2 {
   uint64_t unusedTwo;
 };
 
+struct __align__(16) GpuSparseFloatHeader {
+  __host__ __device__ uint32_t getSize() const {
+    return size;
+  }
+
+  __host__ __device__ void setSize(uint32_t s) {
+    size = s;
+  }
+
+  // Number of floating point words of the given float type in the archive
+  uint32_t size;
+
+  // For 16-byte alignment purposes;
+  uint32_t unusedOne;
+  uint64_t unusedTwo;
+};
+
 static_assert(sizeof(GpuFloatHeader) == 16, "");
 static_assert(sizeof(GpuFloatHeader2) == 16, "");
+static_assert(sizeof(GpuSparseFloatHeader) == 16, "");
+
 
 struct __align__(16) uint64x2 {
   uint64_t x[2];
