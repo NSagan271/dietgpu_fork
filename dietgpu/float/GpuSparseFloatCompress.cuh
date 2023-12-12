@@ -35,11 +35,11 @@ __global__ void printarr2(T *idxs, int count) {
 
 template <
     typename InProvider,
-    typename OutProvider,
     FloatType FT>
 __global__ void generate_bitmap(
     InProvider inProvider,
-    OutProvider outProvider
+    uint8_t* bitmaps,
+    uint32_t rowStride
 ) {
     using FTI = FloatTypeInfo<FT>;
     using WordT = typename FloatTypeInfo<FT>::WordT;
@@ -49,14 +49,7 @@ __global__ void generate_bitmap(
     auto curIn = (const WordT*) inProvider.getBatchStart(batch);
     auto curSize = inProvider.getBatchSize(batch);
 
-    auto headerOut = (GpuSparseFloatHeader*) outProvider.getBatchStart(batch);
-    if (blockIdx.x == 0 && threadIdx.x == 0) {
-        GpuSparseFloatHeader h;
-        h.setSize(curSize);
-        *headerOut = h;
-    }
-
-    auto curOut = (uint8_t *) (headerOut + 1);
+    auto curOut = bitmaps + batch * rowStride;
 
     // TODO: vectorize!
     for (uint32_t i = blockIdx.x * blockDim.x + threadIdx.x; 
@@ -66,14 +59,44 @@ __global__ void generate_bitmap(
     }
 }
 
+template<typename OutProvider, typename SizeProvider>
+__global__ void bitmap_bytes_to_bits(
+    uint8_t* bitmap_bytes,
+    OutProvider outProvider,
+    SizeProvider sizeProvider,
+    uint32_t rowStride
+) {
+    int batch = blockIdx.y;
+
+    auto curIn = bitmap_bytes + batch * rowStride;
+    auto curSize = sizeProvider.getBatchSize(batch);
+
+    auto headerOut = (GpuSparseFloatHeader*) outProvider.getBatchStart(batch);
+    if (blockIdx.x == 0 && threadIdx.x == 0) {
+        GpuSparseFloatHeader h;
+        h.setSize(curSize);
+        *headerOut = h;
+    }
+    auto curOut = (uint8_t *) (headerOut + 1);
+
+    auto curInV = (uint8x8*) curIn;
+    for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < (curSize + 7) / 8; 
+            i+=gridDim.x * blockDim.x) {
+        uint8x8 v = curInV[i];
+        curOut[i] = v.x[7] | (v.x[6] << 1) | (v.x[5] << 2) |
+                    (v.x[4] << 3) | (v.x[3] << 4) | (v.x[2] << 5) |
+                    (v.x[1] << 6) | (v.x[0] << 7);
+
+    }
+}
+
 template <
     typename InProvider,
-    typename OutProvider,
     FloatType FT>
 __global__ void fill_comp_input(
     InProvider inProvider,
     typename FloatTypeInfo<FT>::WordT* sparseData,
-    OutProvider outProvider, // the beginning of the outProvider includes the bitmap data
+    uint8_t* bitmaps,
     uint32_t* sparseIdx,
     uint32_t* sparseBatchSizes, // size numInBatch
     void** batchPointers, // for the BatchProviderPointer
@@ -86,7 +109,7 @@ __global__ void fill_comp_input(
     int batch = blockIdx.y;
 
     auto curIn = (const WordT*) inProvider.getBatchStart(batch);
-    auto curBitmap = ((const uint8_t*) outProvider.getBatchStart(batch)) + sizeof(GpuSparseFloatHeader);
+    auto curBitmap = bitmaps + batch * rowStride;
     auto curOut = sparseData + batch * rowStride;
     auto curSize = inProvider.getBatchSize(batch);
     uint32_t* curSparseIdx = sparseIdx + batch * rowStride;
@@ -124,7 +147,7 @@ struct SparseFloatOutProvider {
 
         // Increment the pointer to past the bitmap data
         return p + sizeof(GpuSparseFloatHeader) +
-            roundUp(sizeProvider_.getBatchSize(batch), 16);
+            roundUp((sizeProvider_.getBatchSize(batch) + 7) / 8, 16);
     }
 
     __device__ const void* getBatchStart(uint32_t batch) const {
@@ -132,7 +155,7 @@ struct SparseFloatOutProvider {
 
         // Increment the pointer to past the bitmap data
         return p + sizeof(GpuSparseFloatHeader) +
-            roundUp(sizeProvider_.getBatchSize(batch), 16);
+            roundUp((sizeProvider_.getBatchSize(batch) + 7) / 8, 16);
     }
 
     __device__ BatchWriter getWriter(uint32_t batch) {
@@ -148,7 +171,8 @@ __global__ void addBitmapToOutSizes(SizeProvider sizeProvider, uint32_t* outSize
     int batch = blockIdx.y;
 
     if (threadIdx.x == 0 && blockIdx.x == 0) {
-        outSize_dev[batch] += roundUp(sizeProvider.getBatchSize(batch), 16) + sizeof(GpuSparseFloatHeader);
+        outSize_dev[batch] += roundUp((sizeProvider.getBatchSize(batch) + 7) / 8, 16) +
+                             sizeof(GpuSparseFloatHeader);
     }
 }
 
@@ -171,20 +195,31 @@ void floatCompressSparseDevice(
     // CUDA kernel parameters
     constexpr int kBlock = 256; 
 
+    uint32_t rowStride = roundUp(maxSize, sizeof(uint4));
+    auto bitmaps = res.alloc<uint8_t>(stream, numInBatch * rowStride);
+    CUDA_VERIFY(cudaMemsetAsync(
+      bitmaps.data(),
+      0,
+      sizeof(uint8_t) * rowStride * numInBatch,
+      stream));
+
     #define RUN_BITMAP(FT) \
     do { \
         auto& props = getCurrentDeviceProperties();                    \
         int maxBlocksPerSM = 0;                                        \
         CUDA_VERIFY(cudaOccupancyMaxActiveBlocksPerMultiprocessor(     \
             &maxBlocksPerSM,                                           \
-            generate_bitmap<InProvider, OutProvider, FT>,   \
+            generate_bitmap<InProvider, FT>,   \
             kBlock,                                                    \
             0));                                                       \
         uint32_t maxGrid = maxBlocksPerSM * props.multiProcessorCount; \
         uint32_t perBatchGrid = 4 * divUp(maxGrid, numInBatch);        \
         auto grid = dim3(perBatchGrid, numInBatch);                     \
-        generate_bitmap<InProvider, OutProvider, FT><<<grid, kBlock, 0, stream>>>( \
-            inProvider, outProvider \
+        generate_bitmap<InProvider, FT><<<grid, kBlock, 0, stream>>>( \
+            inProvider, bitmaps.data(), rowStride \
+        ); \
+        bitmap_bytes_to_bits<OutProvider, InProvider><<<grid, kBlock, 0, stream>>>( \
+            bitmaps.data(), outProvider, inProvider, rowStride \
         ); \
     } while(false);
 
@@ -208,7 +243,6 @@ void floatCompressSparseDevice(
 
     cudaDeviceSynchronize();
 
-    uint32_t rowStride = roundUp(maxSize, sizeof(uint4));
     auto sparseIdx = res.alloc<uint32_t>(stream, numInBatch * rowStride);
     auto sparseBatchSizes = res.alloc<uint32_t>(stream, numInBatch);
     auto batchPointers = res.alloc<uintptr_t>(stream, numInBatch);
@@ -216,8 +250,8 @@ void floatCompressSparseDevice(
     for (int batch = 0; batch < numInBatch; ++batch){
         thrust::exclusive_scan(
             thrust::device,
-            ((uint8_t *) out_host[batch]) + sizeof(GpuSparseFloatHeader),
-            ((uint8_t *) out_host[batch]) + sizeof(GpuSparseFloatHeader) + inSize_host[batch] - 1,
+            bitmaps.data() + batch * rowStride,
+            bitmaps.data() + batch * rowStride + rowStride - 1,
             sparseIdx.data() + batch*rowStride, 0);
     }
 
@@ -229,7 +263,7 @@ void floatCompressSparseDevice(
         int maxBlocksPerSM = 0;                                        \
         CUDA_VERIFY(cudaOccupancyMaxActiveBlocksPerMultiprocessor(     \
             &maxBlocksPerSM,                                           \
-            fill_comp_input<InProvider, OutProvider, FT>,          \
+            fill_comp_input<InProvider, FT>,          \
             kBlock,                                                    \
             0));                                                       \
         uint32_t maxGrid = maxBlocksPerSM * props.multiProcessorCount; \
@@ -237,8 +271,8 @@ void floatCompressSparseDevice(
         auto grid = dim3(perBatchGrid, numInBatch);                     \
         auto sparseData = res.alloc<typename FloatTypeInfo<FT>::WordT>(\
             stream, numInBatch * rowStride); \
-        fill_comp_input<InProvider, OutProvider, FT><<<grid, kBlock, 0, stream>>> ( \
-            inProvider, sparseData.data(), outProvider, sparseIdx.data(), \
+        fill_comp_input<InProvider, FT><<<grid, kBlock, 0, stream>>> ( \
+            inProvider, sparseData.data(), bitmaps.data(), sparseIdx.data(), \
             sparseBatchSizes.data(), (void**) batchPointers.data(), rowStride \
         ); \
         \
