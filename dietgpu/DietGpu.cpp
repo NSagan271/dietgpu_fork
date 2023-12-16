@@ -10,6 +10,7 @@
 #include <glog/logging.h>
 #include <torch/types.h>
 #include <vector>
+#include <string>
 #include "dietgpu/ans/GpuANSCodec.h"
 #include "dietgpu/float/GpuFloatCodec.h"
 #include "dietgpu/utils/StackDeviceMemory.h"
@@ -26,10 +27,12 @@ FloatType getFloatTypeFromDtype(at::ScalarType t) {
       return FloatType::kBFloat16;
     case at::ScalarType::Float:
       return FloatType::kFloat32;
+    case at::ScalarType::Double:
+      return FloatType::kFloat64;
     default:
       TORCH_CHECK(
           t == at::ScalarType::Half || t == at::ScalarType::BFloat16 ||
-          t == at::ScalarType::Float);
+          t == at::ScalarType::Float || t == at::ScalarType::Double);
       return FloatType::kUndefined;
   }
 }
@@ -42,10 +45,12 @@ at::ScalarType getDtypeFromFloatType(FloatType ft) {
       return at::ScalarType::BFloat16;
     case FloatType::kFloat32:
       return at::ScalarType::Float;
+    case FloatType::kFloat64:
+      return at::ScalarType::Double;
     default:
       TORCH_CHECK(
           ft == FloatType::kFloat16 || ft == FloatType::kBFloat16 ||
-          ft == FloatType::kFloat32);
+          ft == FloatType::kFloat32 || ft == FloatType::kFloat64);
       return at::ScalarType::Half;
   }
 }
@@ -112,6 +117,13 @@ std::vector<torch::Tensor> compressedMatrixToTensors(
 //
 
 constexpr int kDefaultPrecision = 10;
+
+// This is just so that the file gets compiled with the next cxx11 ABI
+// which is required to not get symbol errors when loading the .so
+std::string helloWorld() {
+  return "Hello world!";
+}
+
 
 std::tuple<int64_t, int64_t> max_float_compressed_output_size(
     const std::vector<torch::Tensor>& ts) {

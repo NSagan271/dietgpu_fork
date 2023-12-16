@@ -4,6 +4,7 @@
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  */
+#pragma once
 
 #include "dietgpu/ans/GpuANSCodec.h"
 #include "dietgpu/ans/GpuANSDecode.cuh"
@@ -20,16 +21,38 @@
 #include <sstream>
 #include <vector>
 
+// Each float will have at most two bytes to be compressed
+// (and this is only the case for Float64; the rest only have one byte to be
+// compressed).
 #define MAX_NUM_COMP_OUTS 2
 namespace dietgpu {
 
+// Join the compressed and non-compressed and non-compressed data into a full
+// dataset of floating-point words. There is a different JoinFloatNonAligned
+// function for every flavor of float compression; this one works for Float16
+// and BFloat16 (which have one compressed byte and one non-compressed byte).
+//
+// There are also specializations for Float32, which has two separate
+// non-compressed datasets (because 24 bytes are left uncompressed, which is
+// not a power of two) and Float64, which has both two separate non-compressed
+// datasets and two rounds of ANS compression.
 template <FloatType FT, int Threads>
 struct JoinFloatNonAligned {
   static __device__ void join(
+      // Dataset of ANS-decompressed exponents
       const typename FloatTypeInfo<FT>::CompT* __restrict__ compIn,
+
+      // Only used for Float64, which has exponents larger than a byte and
+      // therefore requires two separate rounds of ANS compression
       const typename FloatTypeInfo<FT>::CompT* __restrict__ compInUnused,
+
+      // Dataset of non-compressed float sections
       const typename FloatTypeInfo<FT>::NonCompT* __restrict__ nonCompIn,
+
+      // Number of floats
       uint32_t size,
+
+      // Where to write the output data
       typename FloatTypeInfo<FT>::WordT* __restrict__ out) {
     for (uint32_t i = blockIdx.x * Threads + threadIdx.x; i < size;
          i += gridDim.x * Threads) {
@@ -38,16 +61,29 @@ struct JoinFloatNonAligned {
   }
 };
 
+// Float32 specialization: two separate non-compressed datasets
 template <int Threads>
 struct JoinFloatNonAligned<FloatType::kFloat32, Threads> {
   static __device__ void join(
+    // Dataset of ANS-decompressed exponents
       const typename FloatTypeInfo<
           FloatType::kFloat32>::CompT* __restrict__ compIn,
+      
+      // Only used for Float64, which has exponents larger than a byte and
+      // therefore requires two separate rounds of ANS compression
+      const typename FloatTypeInfo<
+          FloatType::kFloat32>::CompT* __restrict__ compInUnused,
+
+      // Dataset of non-compressed float sections
       const typename FloatTypeInfo<
           FloatType::kFloat32>::CompT* __restrict__ compInUnused,
       const typename FloatTypeInfo<
           FloatType::kFloat32>::NonCompT* __restrict__ nonCompIn,
+
+      // Number of floats
       uint32_t size,
+
+      // Where we write the output floats
       typename FloatTypeInfo<FloatType::kFloat32>::WordT* __restrict__ out) {
     using FTI = FloatTypeInfo<FloatType::kFloat32>;
     using CompT = typename FTI::CompT;
@@ -61,6 +97,7 @@ struct JoinFloatNonAligned<FloatType::kFloat32, Threads> {
 
     for (uint32_t i = blockIdx.x * Threads + threadIdx.x; i < size;
          i += gridDim.x * Threads) {
+      // Full non-compressed section
       uint32_t nc =
           (uint32_t(nonComp1In[i]) * 65536U) + uint32_t(nonComp2In[i]);
 
@@ -69,16 +106,27 @@ struct JoinFloatNonAligned<FloatType::kFloat32, Threads> {
   }
 };
 
+// Float64 specialization: two separate non-compressed datasets,
+// and two separate rounds of ANS compression
 template <int Threads>
 struct JoinFloatNonAligned<FloatType::kFloat64, Threads> {
   static __device__ void join(
+      // Second dataset of ANS-decompressed exponents
       const typename FloatTypeInfo<
           FloatType::kFloat64>::CompT* __restrict__ compIn,
+
+      // First dataset of ANS-decompressed exponents
       const typename FloatTypeInfo<
           FloatType::kFloat64>::CompT* __restrict__ compInFirstDataset,
+
+      // Dataset of non-compressed float sections
       const typename FloatTypeInfo<
           FloatType::kFloat64>::NonCompT* __restrict__ nonCompIn,
+
+      // Number of floats
       uint32_t size,
+
+      // Where we erite the output floats
       typename FloatTypeInfo<FloatType::kFloat64>::WordT* __restrict__ out) {
     using FTI = FloatTypeInfo<FloatType::kFloat64>;
     using CompT = typename FTI::CompT;
@@ -93,6 +141,7 @@ struct JoinFloatNonAligned<FloatType::kFloat64, Threads> {
 
     for (uint32_t i = blockIdx.x * Threads + threadIdx.x; i < size;
          i += gridDim.x * Threads) {
+      // Full non-compressed section
       uint64_t nc = (uint64_t(nonComp2In[i]) * 4294967296U) + uint64_t(nonComp1In[i]);
 
       CompT twoCompressedBytes[2] = {compInFirstDataset[i], compIn[i]};
@@ -101,15 +150,32 @@ struct JoinFloatNonAligned<FloatType::kFloat64, Threads> {
   }
 };
 
+// Join the compressed and non-compressed and non-compressed data into a full
+// dataset of floating-point words. The inputs and outputs are guaranteed to
+// be 16-byte aligned. This allows us to use vectorized operations, which
+// involve writing 16-byte segments at a time, allowing us to take full
+// advantage of GPU memory bandwidth.
+//
+// This function works for Float16; there are also specializations for Float32
+// and Float64.
 template <FloatType FT, int Threads>
 struct JoinFloatAligned16 {
   static __device__ void join(
+      // Dataset of ANS-decompressed exponents
       const typename FloatTypeInfo<FT>::CompT* __restrict__ compIn,
+
+      // Only used for Float64, which has exponents larger than a byte and
+      // therefore requires two separate rounds of ANS compression
       const typename FloatTypeInfo<FT>::CompT* __restrict__ compInUnused,
+
+      // Dataset of non-compressed float sections
       const typename FloatTypeInfo<FT>::NonCompT* __restrict__ nonCompIn,
+
+      // Number of floats
       uint32_t size,
-      typename FloatTypeInfo<FT>::WordT* __restrict__ out,
-      uint32_t compDatasetStride) {
+
+      // Where we write the output floats
+      typename FloatTypeInfo<FT>::WordT* __restrict__ out) {
     using FTI = FloatTypeInfo<FT>;
 
     using WordT = typename FTI::WordT;
@@ -119,9 +185,14 @@ struct JoinFloatAligned16 {
     using CompVecT = typename FTI::CompVecT;
     using NonCompVecT = typename FTI::NonCompVecT;
 
+    // Loop unrolling for performance
     constexpr int kOuterUnroll = 2;
+
+    // Number of floats written in one 16-byte chunk. This is the size of our
+    // vectorized operations.
     constexpr int kInnerUnroll = sizeof(VecT) / sizeof(WordT);
 
+    // Cast inputs and outputs to vectors of size kInnerUnroll.
     const CompVecT* compInV = (const CompVecT*)compIn;
     const NonCompVecT* nonCompInV = (const NonCompVecT*)nonCompIn;
     VecT* outV = (VecT*)out;
@@ -152,8 +223,11 @@ struct JoinFloatAligned16 {
         nonComp[i] = nonCompInV[i * Threads];
       }
 
+      // Temporary output floats
       VecT v[kOuterUnroll];
 
+      // Perform float joining for each element of the input vectors we just
+      // read in
 #pragma unroll
       for (uint32_t i = 0; i < kOuterUnroll; ++i) {
 #pragma unroll
@@ -162,6 +236,7 @@ struct JoinFloatAligned16 {
         }
       }
 
+      // Vectorized write to output memory
 #pragma unroll
       for (uint32_t i = 0; i < kOuterUnroll; ++i) {
         outV[i * Threads] = v[i];
@@ -178,111 +253,30 @@ struct JoinFloatAligned16 {
   }
 };
 
-// template <int Threads>
-// struct JoinFloatAligned16<FloatType::kFloat64, Threads> {
-//   static __device__ void join(
-//       const typename FloatTypeInfo<FloatType::kFloat64>::CompT* __restrict__ compIns,
-//       const typename FloatTypeInfo<FloatType::kFloat64>::NonCompT* __restrict__ nonCompIn,
-//       uint32_t size,
-//       typename FloatTypeInfo<FloatType::kFloat64>::WordT* __restrict__ out,
-//       uint32_t compDatasetStride) {
-//     using FTI = FloatTypeInfo<FloatType::kFloat64>;
-
-//     using WordT = typename FTI::WordT;
-//     using CompT = typename FTI::CompT;
-//     using NonCompT = typename FTI::NonCompT;
-//     using VecT = typename FTI::VecT;
-//     using CompVecT = typename FTI::CompVecT;
-//     using NonCompVecT = typename FTI::NonCompVecT;
-
-//     constexpr int kOuterUnroll = 2;
-//     constexpr int kInnerUnroll = sizeof(VecT) / sizeof(WordT);
-//     int numCompSegments = FTI::getNumCompSegments();
-//     uint32_t compDatasetStrideVec = compDatasetStride / kInnerUnroll;
-
-//     const CompVecT* compInV = (const CompVecT*)compIns;
-//     const NonCompVecT* nonCompInV = (const NonCompVecT*)nonCompIn;
-//     VecT* outV = (VecT*)out;
-
-//     // Each block handles Threads * kOuterUnroll * kInnerUnroll inputs/outputs
-//     // at a time, or Threads * kOuterUnroll 16-byte words at a time
-
-//     constexpr int kWordsPerBlock = Threads * kOuterUnroll;
-//     constexpr int kFloatsPerBlock = kWordsPerBlock * kInnerUnroll;
-//     uint32_t fullBlocks = divDown(size, kFloatsPerBlock);
-
-//     // Handle by block
-//     uint32_t startBlock = blockIdx.x * kWordsPerBlock;
-//     compInV += startBlock + threadIdx.x;
-//     nonCompInV += startBlock + threadIdx.x;
-//     outV += startBlock + threadIdx.x;
-
-//     for (uint32_t b = blockIdx.x; b < fullBlocks; b += gridDim.x,
-//                   compInV += gridDim.x * kWordsPerBlock,
-//                   nonCompInV += gridDim.x * kWordsPerBlock,
-//                   outV += gridDim.x * kWordsPerBlock) {
-//       CompVecT comp[kOuterUnroll*MAX_NUM_COMP_OUTS];
-//       NonCompVecT nonComp[kOuterUnroll];
-
-// #pragma unroll
-//       for (uint32_t i = 0; i < kOuterUnroll; ++i) {
-//         for (int k = 0; k < numCompSegments; k++) {
-//           comp[i+k*kOuterUnroll] = compInV[i * Threads + k*compDatasetStrideVec];
-//         }
-//         nonComp[i] = nonCompInV[i * Threads];
-//       }
-
-//       VecT v[kOuterUnroll];
-
-// #pragma unroll
-//       for (uint32_t i = 0; i < kOuterUnroll; ++i) {
-// #pragma unroll
-//         for (int j = 0; j < kInnerUnroll; ++j) {
-//           CompT comps[MAX_NUM_COMP_OUTS];
-
-//           for (int k = 0; k < numCompSegments; k++) {
-//             comps[k] = comp[i+k*kOuterUnroll].x[j];
-//           }
-//           v[i].x[j] = FTI::join(comps, nonComp[i].x[j]);
-//         }
-//       }
-
-// #pragma unroll
-//       for (uint32_t i = 0; i < kOuterUnroll; ++i) {
-//         outV[i * Threads] = v[i];
-//       }
-//     }
-
-//     // Handle last (partial) block
-//     for (uint32_t i =
-//              fullBlocks * kFloatsPerBlock + blockIdx.x * Threads + threadIdx.x;
-//          i < size;
-//          i += blockDim.x) {
-
-
-//       CompT comps[MAX_NUM_COMP_OUTS];
-
-//       for (int k = 0; k < numCompSegments; k++) {
-//         comps[k] = compIns[i+k*kOuterUnroll];
-//       }
-//       out[i] = FTI::join(comps, nonCompIn[i]);
-//     }
-//   }
-// };
-
-// float32 specialization
+// Float32 specialization for vectorized float joining
 template <int Threads>
 struct JoinFloatAligned16<FloatType::kFloat32, Threads> {
   static __device__ void join(
+      // Dataset of ANS-decompressed exponents
       const typename FloatTypeInfo<
           FloatType::kFloat32>::CompT* __restrict__ compIn,
+
+      // Only used for Float64, which has exponents larger than a byte and
+      // therefore requires two separate rounds of ANS compression
+      const typename FloatTypeInfo<
+          FloatType::kFloat32>::CompT* __restrict__ compInUnused,
+
+      // Dataset of non-compressed float sections
       const typename FloatTypeInfo<
           FloatType::kFloat32>::CompT* __restrict__ compInUnused,
       const typename FloatTypeInfo<
           FloatType::kFloat32>::NonCompT* __restrict__ nonCompIn,
+
+      // Number of floats
       uint32_t size,
-      typename FloatTypeInfo<FloatType::kFloat32>::WordT* __restrict__ out,
-      uint32_t compDatasetStride) {
+
+      // Where we write the output floats
+      typename FloatTypeInfo<FloatType::kFloat32>::WordT* __restrict__ out) {
     using FTI = FloatTypeInfo<FloatType::kFloat32>;
 
     using WordT = typename FTI::WordT;
@@ -290,8 +284,11 @@ struct JoinFloatAligned16<FloatType::kFloat32, Threads> {
     using NonCompT = typename FTI::NonCompT;
 
     constexpr int kOuterUnroll = 1;
+    // Number of floats written in one 16-byte chunk. This is the size of our
+    // vectorized operations.
     constexpr int kInnerUnroll = sizeof(uint32x4) / sizeof(uint32_t);
 
+    // Cast inputs and outputs to vectors of size kInnerUnroll.
     auto compInV = (const uint8x4*)compIn;
     auto nonCompIn2 = (const uint16_t*)nonCompIn;
     auto nonCompIn1 = (const uint8_t*)(nonCompIn2 + roundUp(size, 8));
@@ -323,6 +320,7 @@ struct JoinFloatAligned16<FloatType::kFloat32, Threads> {
       uint16x4 nonComp2[kOuterUnroll];
       uint8x4 nonComp1[kOuterUnroll];
 
+      // Gather compressed and non-compressed data
 #pragma unroll
       for (uint32_t i = 0; i < kOuterUnroll; ++i) {
         comp[i] = compInV[i * Threads];
@@ -339,8 +337,11 @@ struct JoinFloatAligned16<FloatType::kFloat32, Threads> {
         }
       }
 
+      // Temporary storage for output floats
       uint32x4 v[kOuterUnroll];
 
+      // Perform float joining for each element of the input vectors we just
+      // read in
 #pragma unroll
       for (uint32_t i = 0; i < kOuterUnroll; ++i) {
 #pragma unroll
@@ -349,6 +350,7 @@ struct JoinFloatAligned16<FloatType::kFloat32, Threads> {
         }
       }
 
+      // Vectorized write to output memory
 #pragma unroll
       for (uint32_t i = 0; i < kOuterUnroll; ++i) {
         outV[i * Threads] = v[i];
@@ -370,19 +372,27 @@ struct JoinFloatAligned16<FloatType::kFloat32, Threads> {
 };
 
 
-// float64 specialization
+// Float32 specialization for vectorized float joining
 template <int Threads>
 struct JoinFloatAligned16<FloatType::kFloat64, Threads> {
   static __device__ void join(
+      // Second dataset of ANS-decompressed exponents
       const typename FloatTypeInfo<
           FloatType::kFloat64>::CompT* __restrict__ compIn,
+
+      // First dataset of ANS-decompressed exponents
       const typename FloatTypeInfo<
           FloatType::kFloat64>::CompT* __restrict__ compInFirstDataset,
+
+      // Dataset of non-compressed float sections
       const typename FloatTypeInfo<
           FloatType::kFloat64>::NonCompT* __restrict__ nonCompIn,
+
+      // Number of floats
       uint32_t size,
-      typename FloatTypeInfo<FloatType::kFloat64>::WordT* __restrict__ out,
-      uint32_t compDatasetStride) {
+
+      // Where we write the output floats
+      typename FloatTypeInfo<FloatType::kFloat64>::WordT* __restrict__ out) {
     using FTI = FloatTypeInfo<FloatType::kFloat64>;
 
     using WordT = typename FTI::WordT;
@@ -390,8 +400,11 @@ struct JoinFloatAligned16<FloatType::kFloat64, Threads> {
     using NonCompT = typename FTI::NonCompT;
 
     constexpr int kOuterUnroll = 1;
+    // Number of floats written in one 16-byte chunk. This is the size of our
+    // vectorized operations.
     constexpr int kInnerUnroll = sizeof(uint64x2) / sizeof(uint64_t);
 
+    // Cast inputs and outputs to vectors of size kInnerUnroll.
     auto compInV1 = (const uint8x2*)compIn;
     auto compInV2 = (const uint8x2*)compInFirstDataset;
     auto nonCompIn2 = (const uint32_t*)nonCompIn;
@@ -427,6 +440,7 @@ struct JoinFloatAligned16<FloatType::kFloat64, Threads> {
       uint32x2 nonComp2[kOuterUnroll];
       uint16x2 nonComp1[kOuterUnroll];
 
+      // Gather compressed and non-compressed data
 #pragma unroll
       for (uint32_t i = 0; i < kOuterUnroll; ++i) {
         comp1[i] = compInV1[i * Threads];
@@ -444,8 +458,11 @@ struct JoinFloatAligned16<FloatType::kFloat64, Threads> {
         }
       }
 
+      // Temporary storage for output floats
       uint64x2 v[kOuterUnroll];
 
+      // Perform float joining for each element of the input vectors we just
+      // read in
 #pragma unroll
       for (uint32_t i = 0; i < kOuterUnroll; ++i) {
 #pragma unroll
@@ -454,9 +471,8 @@ struct JoinFloatAligned16<FloatType::kFloat64, Threads> {
           v[i].x[j] = FTI::join(twoCompressedBytes, nonComp[i].x[j]);
         }
       }
-// 11111111100010100110110111001101000000000000000000000000000000
-// 11111111100010111100110010000101000000000000000000000000000000
-// 11111111100010100110110111001101000000000000000000000000000000
+
+      // Vectorized write to output memory
 #pragma unroll
       for (uint32_t i = 0; i < kOuterUnroll; ++i) {
         outV[i * Threads] = v[i];
@@ -475,15 +491,28 @@ struct JoinFloatAligned16<FloatType::kFloat64, Threads> {
   }
 };
 
+// Join floats, calling either JoinFloatNonAligned or JoinFloatAligned16,
+// depending on whether the inputs or outputs are 16-byte aligned.
 template <FloatType FT, int Threads>
 struct JoinFloatImpl {
   static __device__ void join(
+      // For anything except Float64, this is the dataset of ANS-decompressed
+      // exponents. For Float64, this is the output of the second round of
+      // ANS decompression
       const typename FloatTypeInfo<FT>::CompT* compIn,
+
+      // For anything but Float64, this is the same as compIn. For Float64,
+      // this is the output of the first round of ANS decompression.
       const typename FloatTypeInfo<FT>::CompT* compInFirstDataset,
+
+      // Dataset of non-compressed float sections
       const typename FloatTypeInfo<FT>::NonCompT* nonCompIn,
+
+      // Number of floats
       uint32_t size,
-      typename FloatTypeInfo<FT>::WordT* out,
-      uint32_t compDatasetStride) {
+
+      // Where to write the output floats
+      typename FloatTypeInfo<FT>::WordT* out) {
     // compIn should always be aligned, as we decompress into temporary memory
     auto compUnalignedBytes = getAlignmentRoundUp<sizeof(uint4)>(compIn);
     auto nonCompUnalignedBytes = getAlignmentRoundUp<sizeof(uint4)>(nonCompIn);
@@ -493,41 +522,13 @@ struct JoinFloatImpl {
       JoinFloatNonAligned<FT, Threads>::join(compIn, compInFirstDataset, nonCompIn, size, out);
       
     } else {
-      JoinFloatAligned16<FT, Threads>::join(compIn, compInFirstDataset, nonCompIn, size, out, compDatasetStride);
+      JoinFloatAligned16<FT, Threads>::join(compIn, compInFirstDataset, nonCompIn, size, out);
     }
   }
 };
 
-template <int Threads>
-struct JoinFloatImpl<FloatType::kFloat32, Threads> {
-  static __device__ void join(
-      const typename FloatTypeInfo<FloatType::kFloat32>::CompT* compIn,
-      const typename FloatTypeInfo<FloatType::kFloat32>::CompT* compInFirstDataset, // UNUSED
-      const typename FloatTypeInfo<FloatType::kFloat32>::NonCompT* nonCompIn,
-      uint32_t size,
-      typename FloatTypeInfo<FloatType::kFloat32>::WordT* out,
-      uint32_t compDatasetStride) {
-    // FIXME: implement vectorization
-    JoinFloatNonAligned<FloatType::kFloat32, Threads>::join(
-        compIn, compInFirstDataset, nonCompIn, size, out);
-  }
-};
-
-// template <int Threads>
-// struct JoinFloatImpl<FloatType::kFloat64, Threads> {
-//   static __device__ void join(
-//       const typename FloatTypeInfo<FloatType::kFloat64>::CompT* compIn,
-//       const typename FloatTypeInfo<FloatType::kFloat64>::CompT* compInFirstDataset,
-//       const typename FloatTypeInfo<FloatType::kFloat64>::NonCompT* nonCompIn,
-//       uint32_t size,
-//       typename FloatTypeInfo<FloatType::kFloat64>::WordT* out,
-//       uint32_t compDatasetStride) {
-//     // FIXME: implement vectorization
-//     JoinFloatNonAligned<FloatType::kFloat64, Threads>::join(
-//         compIn, compInFirstDataset, nonCompIn, size, out);
-//   }
-// };
-
+// Join the compressed and non-compressed sections into full floats, for
+// each batch of float data
 template <
     typename InProviderComp,
     typename InProviderNonComp,
@@ -535,13 +536,27 @@ template <
     FloatType FT,
     int Threads>
 __global__ void joinFloat(
+    // For anything but Float64, this is the BatchProvider for the
+    // ANS-decompressed exponents. For Float64, this is the BatchProvider for
+    // the output of the second ANS decompression round.
     InProviderComp inProviderComp,
-    InProviderComp inProviderCompFirstDataset, // same as inProviderComp, except for F64
+
+    // For anything but Float64, this is the same as inProviderComp. For Float64,
+    // this is the BatchProvider for the output of the first ANS
+    // decompression round
+    InProviderComp inProviderCompFirstDataset,
+
+    // BatchProvider for the non-compressed data
     InProviderNonComp inProviderNonComp,
+
+    // BatchProvider for the output data
     OutProvider outProvider,
+
+    // Whether ANS decompression was successful, for each batch
     uint8_t* __restrict__ outSuccess,
-    uint32_t* __restrict__ outSize,
-    uint32_t compDatasetStride) {
+
+    // ANS decompression output size, for each batch
+    uint32_t* __restrict__ outSize) {
   using FTI = FloatTypeInfo<FT>;
   using WordT = typename FTI::WordT;
   using CompT = typename FTI::CompT;
@@ -549,6 +564,7 @@ __global__ void joinFloat(
 
   int batch = blockIdx.y;
 
+  // Inputs and outputs for the current batch
   auto curCompIn = (const CompT*)inProviderComp.getBatchStart(batch);
   auto curCompInFirstDataset = (const CompT*) inProviderCompFirstDataset.getBatchStart(batch);
   auto curHeaderIn =
@@ -576,9 +592,12 @@ __global__ void joinFloat(
 
   auto curNonCompIn = (const NonCompT*)(curHeaderIn + 2);
 
-  JoinFloatImpl<FT, Threads>::join(curCompIn, curCompInFirstDataset, curNonCompIn, curSize, curOut, compDatasetStride);
+  JoinFloatImpl<FT, Threads>::join(curCompIn, curCompInFirstDataset, curNonCompIn, curSize, curOut);
 }
 
+// BatchProvider for the input to the ANS decompressor.
+// The data to be ANS decompressed is stored after the floating-point
+// compression headers and the the non-compressed data.
 template <FloatType FT, typename InProvider>
 struct FloatANSProvider {
   using FTI = FloatTypeInfo<FT>;
@@ -594,7 +613,7 @@ struct FloatANSProvider {
     assert(FT == h.getFloatType());
 
     // Increment the pointer to past the floating point data
-    return p + sizeof(GpuFloatHeader) + FTI::getUncompDataSize(h.size);
+    return p + sizeof(GpuFloatHeader) + sizeof(GpuFloatHeader2) + FTI::getUncompDataSize(h.size);
   }
 
   __device__ const void* getBatchStart(uint32_t batch) const {
@@ -606,12 +625,15 @@ struct FloatANSProvider {
     assert(FT == h.getFloatType());
 
     // Increment the pointer to past the floating point data
-    return p + sizeof(GpuFloatHeader) + FTI::getUncompDataSize(h.size);
+    return p + sizeof(GpuFloatHeader) + sizeof(GpuFloatHeader2) + FTI::getUncompDataSize(h.size);
   }
 
   InProvider inProvider_;
 };
 
+// This is the BatchProvider for the second round of ANS compression for Float64.
+// The data to be decompressed is directly after the first dataset of
+// ANS-compressed data, the size of which is given by the offsets input array.
 template <FloatType FT, typename InProvider>
 struct FloatANSProviderOffset {
   using FTI = FloatTypeInfo<FT>;
@@ -646,6 +668,7 @@ struct FloatANSProviderOffset {
   uint32_t* offsets_;
 };
 
+// Inline version of FloatANSProvider
 template <FloatType FT, int N>
 struct FloatANSProviderInline {
   using FTI = FloatTypeInfo<FT>;
@@ -666,7 +689,7 @@ struct FloatANSProviderInline {
     assert(FT == h.getFloatType());
 
     // Increment the pointer to past the floating point data
-    return p + sizeof(GpuFloatHeader) + FTI::getUncompDataSize(h.size);
+    return p + sizeof(GpuFloatHeader) + sizeof(GpuFloatHeader2) + FTI::getUncompDataSize(h.size);
   }
 
   __device__ const void* getBatchStart(uint32_t batch) const {
@@ -678,12 +701,15 @@ struct FloatANSProviderInline {
     assert(FT == h.getFloatType());
 
     // Increment the pointer to past the floating point data
-    return p + sizeof(GpuFloatHeader) + FTI::getUncompDataSize(h.size);
+    return p + sizeof(GpuFloatHeader) + sizeof(GpuFloatHeader2) + FTI::getUncompDataSize(h.size);
   }
 
   const void* in_[N];
 };
 
+// For the fused kernel implementation: this writer for the ANS Output Batch
+// Provider automatically joins the (decompressed) exponents with the
+// (non-compressed) significands.
 template <FloatType FT, uint32_t BlockSize>
 struct JoinFloatWriter {
   using FTI = FloatTypeInfo<FT>;
@@ -734,6 +760,7 @@ struct JoinFloatWriter {
   const typename FTI::NonCompT* nonCompBlock_;
 };
 
+// Float32 specialization of the JoinFloatWriter
 template <uint32_t BlockSize>
 struct JoinFloatWriter<FloatType::kFloat32, BlockSize> {
   static constexpr bool kVectorize = false;
@@ -781,6 +808,7 @@ struct JoinFloatWriter<FloatType::kFloat32, BlockSize> {
   const uint8_t* nonCompBlock1_;
 };
 
+// BatchProvider that specifies where to write the ANS-decompressed exponents
 template <
     typename InProvider,
     typename OutProvider,
@@ -809,13 +837,14 @@ struct FloatOutProvider {
         h->size,
         (typename FTI::WordT*)outProvider_.getBatchStart(batch),
         // advance past the header
-        (const typename FTI::NonCompT*)(h + 1));
+        (const typename FTI::NonCompT*)(h + 2));
   }
 
   InProvider inProvider_;
   OutProvider outProvider_;
 };
 
+// Inline version of FloatOutProvider
 template <int N, FloatType FT, uint32_t BlockSize>
 struct FloatOutProviderInline {
   using FTI = FloatTypeInfo<FT>;
@@ -850,7 +879,7 @@ struct FloatOutProviderInline {
         h->size,
         (typename FTI::WordT*)out_[batch],
         // advance past the header
-        (const typename FTI::NonCompT*)(h + 1));
+        (const typename FTI::NonCompT*)(h + 2));
   }
 
   const void* in_[N];
@@ -858,7 +887,9 @@ struct FloatOutProviderInline {
   uint32_t outCapacity_[N];
 };
 
-
+// For Float64 compression, this populates an array with the number of bytes in
+// the first ANS-compressed section. This allows us to find where the start of
+// the second ANS-compressed section is.
 template <typename InProvider, FloatType FT>
 __global__ void getANSOutOffset(InProvider inProvider, 
       uint32_t* ansOutOffset, uint32_t numInBatch) {
@@ -869,61 +900,80 @@ __global__ void getANSOutOffset(InProvider inProvider,
   }
 }
 
+// Main method, called by GpuFloatDeompress.cu
 template <typename InProvider, typename OutProvider>
 FloatDecompressStatus floatDecompressDevice(
+    // used for allocating all GPU memory
     StackDeviceMemory& res,
+
+    // Config for float decompression. See GpuFloatCodec.h
     const FloatDecompressConfig& config,
+
+    // Number of input batches
     uint32_t numInBatch,
+
+    // BatchProvider containing compressed data for each batch
     InProvider& inProvider,
+
+    // OutProvider that determines where we will write the decompressed floats
     OutProvider& outProvider,
+
+    // Maximum number of floats we can write to any given batch output
     uint32_t maxCapacity,
+
+    // This array will be populated with whether decompression was successful
     uint8_t* outSuccess_dev,
+
+    // This array will be populated with the number of decompressed floats in
+    // each batch
     uint32_t* outSize_dev,
+
+    // CUDA execution stream
     cudaStream_t stream) {
   // not allowed in float mode
   assert(!config.ansConfig.useChecksum);
 
   // We can perform decoding in a single pass if all input data is 16 byte
-  // aligned
-  if (false && config.is16ByteAligned) {
-//     //
-//     // Fused kernel: perform decompression in a single pass
-//     //
+  // aligned. A fused kernel implementation is not possible for Float64,
+  // as there are two rounds of ANS decompression.
+  if (config.is16ByteAligned && config.floatType != FloatType::kFloat64) {
+    //
+    // Fused kernel: perform decompression in a single pass
+    //
+#define RUN_FUSED(FT)                                                     \
+  do {                                                                    \
+    auto inProviderANS = FloatANSProvider<FT, InProvider>(inProvider);    \
+    auto outProviderANS =                                                 \
+        FloatOutProvider<InProvider, OutProvider, FT, kDefaultBlockSize>( \
+            inProvider, outProvider);                                     \
+                                                                          \
+    ansDecodeBatch(                                                       \
+        res,                                                              \
+        config.ansConfig,                                                 \
+        numInBatch,                                                       \
+        inProviderANS,                                                    \
+        outProviderANS,                                                   \
+        outSuccess_dev,                                                   \
+        outSize_dev,                                                      \
+        stream);                                                          \
+  } while (false)
 
-// #define RUN_FUSED(FT)                                                     \
-//   do {                                                                    \
-//     auto inProviderANS = FloatANSProvider<FT, InProvider>(inProvider);    \
-//     auto outProviderANS =                                                 \
-//         FloatOutProvider<InProvider, OutProvider, FT, kDefaultBlockSize>( \
-//             inProvider, outProvider);                                     \
-//                                                                           \
-//     ansDecodeBatch(                                                       \
-//         res,                                                              \
-//         config.ansConfig,                                                 \
-//         numInBatch,                                                       \
-//         inProviderANS,                                                    \
-//         outProviderANS,                                                   \
-//         outSuccess_dev,                                                   \
-//         outSize_dev,                                                      \
-//         stream);                                                          \
-//   } while (false)
+    switch (config.floatType) {
+      case FloatType::kFloat16:
+        RUN_FUSED(FloatType::kFloat16);
+        break;
+      case FloatType::kBFloat16:
+        RUN_FUSED(FloatType::kBFloat16);
+        break;
+      case FloatType::kFloat32:
+        RUN_FUSED(FloatType::kFloat32);
+        break;
+      default:
+        CHECK(false);
+        break;
+    }
 
-//     switch (config.floatType) {
-//       case FloatType::kFloat16:
-//         RUN_FUSED(FloatType::kFloat16);
-//         break;
-//       case FloatType::kBFloat16:
-//         RUN_FUSED(FloatType::kBFloat16);
-//         break;
-//       case FloatType::kFloat32:
-//         RUN_FUSED(FloatType::kFloat32);
-//         break;
-//       default:
-//         CHECK(false);
-//         break;
-//     }
-
-// #undef RUN_FUSED
+#undef RUN_FUSED
   }
 
   else {
@@ -937,24 +987,32 @@ FloatDecompressStatus floatDecompressDevice(
     // vectorization
     uint32_t maxCapacityAligned = roundUp(maxCapacity, sizeof(uint4));
 
-    auto exp_dev = res.alloc<uint8_t>(stream, roundUp(numInBatch * maxCapacityAligned, 16) * MAX_NUM_COMP_OUTS);
+    auto exp_dev = res.alloc<uint8_t>(stream, numInBatch * maxCapacityAligned * MAX_NUM_COMP_OUTS);
+
+    // This is the "offset" array passed into the FloatANSProviderOffset. This will
+    // be all zero, except for the second round of ANS decompression for Float64,
+    // where it will contain the size of the first ANS-compressed output.
     auto ansOutOffset_dev = res.alloc<uint32_t>(stream, numInBatch);
     CUDA_VERIFY(cudaMemsetAsync(
       ansOutOffset_dev.data(),
       0,
       sizeof(uint32_t) * numInBatch,
       stream));
+
 uint32_t compSegment = 0;
-#define RUN_DECODE(FT, nCompSegments)                                     \
-compSegment = 0;                                                          \
-  do {                                                                    \
-      using InProviderANS = FloatANSProviderOffset<FT, InProvider>;        \
-      auto inProviderANS = InProviderANS(inProvider, ansOutOffset_dev.data());                       \
+#define RUN_DECODE(FT, nCompSegments)                                       \
+compSegment = 0;                                                            \
+  do {                                                                      \
+      using InProviderANS = FloatANSProviderOffset<FT, InProvider>;         \
+      auto inProviderANS = InProviderANS(inProvider,                        \
+                                         ansOutOffset_dev.data());          \
                                                                             \
       using OutProviderANS = BatchProviderStride;                           \
       auto outProviderANS = OutProviderANS(                                 \
-          exp_dev.data() + compSegment * roundUp(numInBatch * maxCapacityAligned, 16), maxCapacityAligned, maxCapacityAligned);          \
-      auto outProviderANSFirstSegment = OutProviderANS(exp_dev.data(), maxCapacityAligned, maxCapacityAligned); \
+          exp_dev.data() + compSegment * maxCapacityAligned * numInBatch,   \
+          maxCapacityAligned, maxCapacityAligned);                          \
+      auto outProviderANSFirstSegment = OutProviderANS(exp_dev.data(),      \
+                                   maxCapacityAligned, maxCapacityAligned); \
       ansDecodeBatch(                                                       \
           res,                                                              \
           config.ansConfig,                                                 \
@@ -993,8 +1051,7 @@ compSegment = 0;                                                          \
               inProvider,                                                   \
               outProvider,                                                  \
               outSuccess_dev,                                               \
-              outSize_dev,                                                  \
-              roundUp(numInBatch * maxCapacityAligned, 16));                \
+              outSize_dev);                                                 \
     }                                                                       \
   } while(++compSegment < nCompSegments);                                   \
 

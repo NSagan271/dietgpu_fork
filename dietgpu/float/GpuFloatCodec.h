@@ -30,6 +30,7 @@ enum class FloatType : uint32_t {
 // This can be used to bound memory consumption for the destination compressed
 // buffer
 uint32_t getMaxFloatCompressedSize(FloatType floatType, uint32_t size);
+uint32_t getMaxSparseFloatCompressedSize(FloatType floatType, uint32_t size);
 
 struct FloatCodecConfig {
   inline FloatCodecConfig()
@@ -170,6 +171,21 @@ void floatCompressSplitSize(
     // stream on the current device on which this runs
     cudaStream_t stream);
 
+// All arguments are the same as floatCompress; see the comments on floatCompress
+// above for more details.
+//
+// This is a specialized float compression for sparse floating point data, i.e.,
+// where a decent percent of the data is exactly zero.
+void floatCompressSparse(
+    StackDeviceMemory& res,
+    const FloatCompressConfig& config,
+    uint32_t numInBatch,
+    const void** in,
+    const uint32_t* inSize,
+    void** out,
+    uint32_t* outSize_dev,
+    cudaStream_t stream);
+
 //
 // Decode
 //
@@ -244,6 +260,19 @@ FloatDecompressStatus floatDecompressSplitSize(
     uint32_t* outSize_dev,
 
     // stream on the current device on which this runs
+    cudaStream_t stream);
+
+// All arguments are the same as floatDeompress; see the comments on floatDecompress
+// above for more details.
+FloatDecompressStatus floatDecompressSparse(
+    StackDeviceMemory& res,
+    const FloatDecompressConfig& config,
+    uint32_t numInBatch,
+    const void** in,
+    void** out,
+    const uint32_t* outCapacity,
+    uint8_t* outSuccess_dev,
+    uint32_t* outSize_dev,
     cudaStream_t stream);
 
 //
