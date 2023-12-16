@@ -294,6 +294,7 @@ FloatDecompressStatus floatDecompressSparseDevice(
         /* output. */                                                         \
         auto nonzerosIdx = res.alloc<uint32_t>(stream,                        \
             numInBatch * maxCapacityAligned);                                 \
+        cudaDeviceSynchronize();                                              \
         for (int batch = 0; batch < numInBatch; ++batch){                     \
             thrust::exclusive_scan(                                           \
                 thrust::device,                                               \

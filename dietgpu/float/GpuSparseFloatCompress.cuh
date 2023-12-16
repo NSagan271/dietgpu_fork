@@ -357,6 +357,7 @@ void floatCompressSparseDevice(
     // Run an exclusive scan on the bitmaps, for each batch. This lets us
     // create a dataset with only the nonzero elements of the input data.
     // See the fill_comp_input kernel for more details.
+    cudaDeviceSynchronize(); 
     for (int batch = 0; batch < numInBatch; ++batch){
         thrust::exclusive_scan(
             thrust::device,
