@@ -57,6 +57,21 @@ target_link_libraries(float_test
   gpu_sparse_float_compress
   gtest_main
 )
+
+add_executable(float_benchmark FloatBenchmark.cu)
+target_link_libraries(float_benchmark
+  gpu_float_compress
+  gpu_sparse_float_compress
+  gtest_main
+)
+
+add_executable(sparse_float_benchmark SparseFloatBenchmark.cu)
+target_link_libraries(sparse_float_benchmark
+  gpu_float_compress
+  gpu_sparse_float_compress
+  gtest_main
+)
+
 gtest_discover_tests(float_test)
 
 

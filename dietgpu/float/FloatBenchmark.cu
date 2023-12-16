@@ -4,7 +4,10 @@
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  */
-
+#include <iostream>
+#include <ctime>
+#include <fstream>
+#include <chrono>
 #include <gtest/gtest.h>
 #include <cmath>
 #include <cstring>
@@ -118,7 +121,7 @@ struct GenerateFloat<FloatType::kFloat64> {
 template <FloatType FT>
 std::vector<typename FloatTypeInfo<FT>::WordT> generateFloats(int num) {
   std::mt19937 gen(10 + num);
-  std::normal_distribution<float> dist;
+  std::normal_distribution<double> dist;
 
   auto out = std::vector<typename FloatTypeInfo<FT>::WordT>(num);
   for (auto& v : out) {
@@ -128,17 +131,45 @@ std::vector<typename FloatTypeInfo<FT>::WordT> generateFloats(int num) {
   return out;
 }
 
+/*
+ * Benchmark float compression bandwidth and compression ratio.
+ * 
+ * This function generates a specified number of floats and compresses them
+ * using float compression. The compression and decompression times are measured,
+ * and the bandwidth is calculated as (time / GB of floats compressed). The
+ * compression ratio is calculated as (output bytes / input bytes). 
+ *
+ * Outputs are written in CSV format to the specified output file
+ */
 template <FloatType FT>
-void runBatchPointerTest(
+void runBenchmark(
     StackDeviceMemory& res,
     int probBits,
-    const std::vector<uint32_t>& batchSizes) {
+    const std::vector<uint32_t>& batchSizes,
+    char* outputFilename,
+    bool writeHeader=false) {
+      
   using FTI = FloatTypeInfo<FT>;
 
   // run on a different stream to test stream assignment
   auto stream = CudaStream::makeNonBlocking();
 
+  if (writeHeader) {
+    // Text file to which the output will be written.
+    std::ofstream outputFile(outputFilename, std::ios_base::out);
+    if (outputFile.is_open()) {
+      outputFile << "float_type, prob_bits, million_floats, comp_bandwidth_gbps, decomp_bandwidth_gbps" << std::endl;
+      outputFile.close();
+    }
+  }
+  // Now, we should append to the file instead of overwriting!
+  std::ofstream outputFile(outputFilename, std::ios_base::app);
+
+  // Number of input batches
   int numInBatch = batchSizes.size();
+  
+  // Find the maximum number of floats in a batch, as well as the total number
+  // across all batches
   uint32_t totalSize = 0;
   uint32_t maxSize = 0;
   for (auto v : batchSizes) {
@@ -146,11 +177,19 @@ void runBatchPointerTest(
     maxSize = std::max(maxSize, v);
   }
 
+  // Max compressed size for a single float
   auto maxCompressedSize = getMaxFloatCompressedSize(FT, maxSize);
 
   auto orig = generateFloats<FT>(totalSize);
+  // Copy the floats to the device before starting the timer to be consistent
+  // with benchmark.py, where the data is already loaded onto the GPU via
+  // PyTorch before benchmarking begins
   auto orig_dev = res.copyAlloc(stream, orig);
 
+  // start the compression timer
+  auto comp_start = std::chrono::system_clock::now();
+
+  // Set up pointers to input data to be compressed
   auto inPtrs = std::vector<const void*>(batchSizes.size());
   {
     uint32_t curOffset = 0;
@@ -160,8 +199,10 @@ void runBatchPointerTest(
     }
   }
 
+  // This is the memory for the compression output
   auto enc_dev = res.alloc<uint8_t>(stream, numInBatch * maxCompressedSize);
 
+  // Output pointers
   auto encPtrs = std::vector<void*>(batchSizes.size());
   {
     for (int i = 0; i < inPtrs.size(); ++i) {
@@ -169,6 +210,7 @@ void runBatchPointerTest(
     }
   }
 
+  // floatCompress will populate this array with the size of the output, per batch
   auto outBatchSize_dev = res.alloc<uint32_t>(stream, numInBatch);
 
   auto compConfig =
@@ -183,8 +225,20 @@ void runBatchPointerTest(
       encPtrs.data(),
       outBatchSize_dev.data(),
       stream);
+  
+  // Make sure all CUDA operations are finished before we end the timer
+  cudaDeviceSynchronize();
 
-  // Decode data
+  // Stop the timer and see how long compression took
+  auto comp_end = std::chrono::system_clock::now();
+    
+  std::chrono::duration<double> comp_dur = comp_end-comp_start;
+  double elapsed_seconds_comp =
+      std::chrono::duration_cast<std::chrono::microseconds>(comp_dur).count() / 1e6;
+
+  // Decompression
+
+  // Set up the input pointers for decompression
   auto dec_dev = res.alloc<typename FTI::WordT>(stream, totalSize);
 
   auto decPtrs = std::vector<void*>(batchSizes.size());
@@ -196,11 +250,15 @@ void runBatchPointerTest(
     }
   }
 
+  // These will be populated with decompression success and output size, per batch
   auto outSuccess_dev = res.alloc<uint8_t>(stream, numInBatch);
   auto outSize_dev = res.alloc<uint32_t>(stream, numInBatch);
 
   auto decompConfig =
       FloatDecompressConfig(FT, ANSCodecConfig(probBits), false, true);
+
+  // start the timer
+ auto decomp_start = std::chrono::system_clock::now();
 
   floatDecompress(
       res,
@@ -213,6 +271,62 @@ void runBatchPointerTest(
       outSize_dev.data(),
       stream);
 
+  // wait for CUDA operations to finish and stop the timer
+  cudaDeviceSynchronize();
+  auto decomp_end = std::chrono::system_clock::now();
+    
+  std::chrono::duration<double> decomp_dur = decomp_end-decomp_start;
+  double elapsed_seconds_decomp =
+      std::chrono::duration_cast<std::chrono::microseconds>(decomp_dur).count() / 1e6;
+
+  // get empirical compression ratio by computing the output bytes, divided by
+  // input bytes
+  auto outSizeComp = outBatchSize_dev.copyToHost(stream);
+  float totalNFloats = 0;
+  float outSizeTotal = 0;
+  for (int i = 0; i < numInBatch; ++i) {
+    outSizeTotal += outSizeComp[i];
+    totalNFloats += batchSizes[i];
+  }
+  float inSizeTotal = totalNFloats * sizeof(typename FTI::WordT);
+
+  float compressionRatio = outSizeTotal / inSizeTotal;
+
+  // compute bandwidths in GB/s
+  float bw_comp = (inSizeTotal / 1e9) / elapsed_seconds_comp;
+  float bw_decomp = (inSizeTotal / 1e9) / elapsed_seconds_decomp;
+
+  char* float_type;
+  switch (FT) {
+    case FloatType::kFloat16:
+      float_type = "Float16";
+      break;
+    case FloatType::kBFloat16:
+      float_type = "BFloat16";
+      break;
+    case FloatType::kFloat32:
+      float_type = "Float32";
+      break;
+    case FloatType::kFloat64:
+      float_type = "Float64";
+      break;
+    default:
+      assert(false);
+  }
+
+  // Write the benchmark data to the specified file
+  if (outputFile.is_open()) {
+      outputFile << float_type << ", "<< 9 << ", " << totalNFloats / 1e6 <<
+        ", " << compressionRatio<< ", " << bw_comp << ", " << bw_decomp << std::endl;
+
+      // Close the file
+      outputFile.close();
+      std::cout << "Current time has been written to " << outputFilename << std::endl;
+  } else {
+      std::cerr << "Error opening the file" << outputFilename << std::endl;
+  }
+
+  // Also, test for correctness
   auto outSuccess = outSuccess_dev.copyToHost(stream);
   auto outSize = outSize_dev.copyToHost(stream);
 
@@ -238,23 +352,25 @@ void runBatchPointerTest(
   EXPECT_EQ(orig, dec);
 }
 
-void runBatchPointerTest(
+void runBenchmark(
     StackDeviceMemory& res,
     FloatType ft,
     int probBits,
-    const std::vector<uint32_t>& batchSizes) {
+    const std::vector<uint32_t>& batchSizes,
+    char* outputFile,
+    bool writeHeader=false) {
   switch (ft) {
     case FloatType::kFloat16:
-      runBatchPointerTest<FloatType::kFloat16>(res, probBits, batchSizes);
+      runBenchmark<FloatType::kFloat16>(res, probBits, batchSizes, outputFile, writeHeader);
       break;
     case FloatType::kBFloat16:
-      runBatchPointerTest<FloatType::kBFloat16>(res, probBits, batchSizes);
+      runBenchmark<FloatType::kBFloat16>(res, probBits, batchSizes, outputFile, writeHeader);
       break;
     case FloatType::kFloat32:
-      runBatchPointerTest<FloatType::kFloat32>(res, probBits, batchSizes);
+      runBenchmark<FloatType::kFloat32>(res, probBits, batchSizes, outputFile, writeHeader);
       break;
     case FloatType::kFloat64:
-      runBatchPointerTest<FloatType::kFloat64>(res, probBits, batchSizes);
+      runBenchmark<FloatType::kFloat64>(res, probBits, batchSizes, outputFile, writeHeader);
       break;
     default:
       CHECK(false);
@@ -262,62 +378,51 @@ void runBatchPointerTest(
   }
 }
 
-void runBatchPointerTest(
+void runBenchmark(
     StackDeviceMemory& res,
     FloatType ft,
     int probBits,
     int numInBatch,
-    uint32_t multipleOf = 1) {
+    uint32_t multipleOf,
+    char* outputFile,
+    bool writeHeader=false) {
   std::mt19937 gen(10 + numInBatch);
-  std::uniform_int_distribution<uint32_t> dist(1, 10000);
+  std::uniform_int_distribution<uint32_t> dist(1, 1);
 
   auto batchSizes = std::vector<uint32_t>(numInBatch);
   for (auto& v : batchSizes) {
     v = roundUp(dist(gen), multipleOf);
   }
 
-  runBatchPointerTest(res, ft, probBits, batchSizes);
+  runBenchmark(res, ft, probBits, batchSizes, outputFile, writeHeader);
 }
 
-TEST(FloatTest, Batch) {
-  auto res = makeStackMemory();
 
+
+int main(int argc, char *argv[])
+{
+
+  char* outputFile;
+  if (argc == 1) {
+    std::cout << "\n-----------------------------------------------------------------" << std::endl;
+    std::cout << "No output file specified; writing to './benchmark.txt'." << std::endl;
+    std::cout << "\nYou can specify an output file as the first command-line argument" << std::endl;
+    std::cout << "to this executable, e.g., ./float_benchmark fileName.txt." << std::endl;
+    std::cout << "-----------------------------------------------------------------\n" << std::endl;
+    outputFile = "./benchmark.txt";
+  } else {
+    outputFile = argv[1];
+  }
+  // Make a large enough stack memory or we will get performance
+  // issues from resizing the stack memory
+  auto res = makeStackMemory(10000000000);
+
+  bool first = true;
   for (auto ft :
        {FloatType::kFloat16, FloatType::kBFloat16, FloatType::kFloat32, FloatType::kFloat64}) {
-    for (auto probBits : {9, 10}) {
-      for (auto numInBatch : {1, 3, 16, 23}) {
-        runBatchPointerTest(res, ft, probBits, numInBatch);
-        // Also test the case where there is uniform 16 byte alignment across
-        // all batches
-        runBatchPointerTest(res, ft, probBits, numInBatch, 16);
-      }
-    }
-  }
-}
-
-TEST(FloatTest, LargeBatch) {
-  auto res = makeStackMemory();
-
-  auto batchSizes = std::vector<uint32_t>(256);
-  for (auto& v : batchSizes) {
-    v = 512 * 1024;
-  }
-
-  for (auto ft :
-       {FloatType::kFloat16, FloatType::kBFloat16, FloatType::kFloat32, FloatType::kFloat64}) {
-    runBatchPointerTest(res, ft, 10, batchSizes);
-  }
-}
-
-TEST(FloatTest, BatchSize1) {
-  auto res = makeStackMemory();
-
-  for (auto ft :
-       {FloatType::kFloat16, FloatType::kBFloat16, FloatType::kFloat32, FloatType::kFloat64}) {
-    for (auto probBits : {9, 10}) {
-      runBatchPointerTest(res, ft, probBits, {1});
-      runBatchPointerTest(res, ft, probBits, {13, 1});
-      runBatchPointerTest(res, ft, probBits, {12345, 1, 8083, 1, 17});
+    for (long long multipleOf : {100000, 150000, 1000000, 1500000, 10000000, 15000000, 100000000}) {
+      runBenchmark(res, ft, 9, 1, multipleOf, outputFile, first);
+      first = false;
     }
   }
 }

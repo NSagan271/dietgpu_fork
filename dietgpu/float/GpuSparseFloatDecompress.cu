@@ -12,6 +12,9 @@
 
 namespace dietgpu {
 
+/* Performs decompression on sparse floats. This has the same API as floatDeompress,
+ * but it requires that the data have been compressed with floatCompressSparse.
+ */
 FloatDecompressStatus floatDecompressSparse(
     StackDeviceMemory& res,
     const FloatDecompressConfig& config,

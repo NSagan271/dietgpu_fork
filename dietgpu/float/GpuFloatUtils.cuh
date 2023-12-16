@@ -71,6 +71,10 @@ struct __align__(16) GpuFloatHeader {
   uint32_t checksum;
 };
 
+// For float64 compression, there are two rounds of ANS compression. So, we
+// need additional header space to store the number of bytes in the first
+// compressed segment, so we can easily find where the second compressed segment
+// starts during decompression.
 struct __align__(16) GpuFloatHeader2 {
   __host__ __device__ uint32_t getFirstCompSegmentBytes() const {
     return firstCompSegmentBytes;
@@ -84,11 +88,22 @@ struct __align__(16) GpuFloatHeader2 {
   // there are two different segments of compressed data)
   uint32_t firstCompSegmentBytes;
 
-  // For 16-byte alignment purposes;
+  // For 16-byte alignment purposes, we need to have these extra fields.
+  // Otherwise, the size of this struct will not be 16 bytes and the section
+  // of memory directly after it will not be 16-byte aligned.
   uint32_t unusedOne;
   uint64_t unusedTwo;
 };
 
+// For sparse floating point compression, we form a bitmap of whether each
+// index of the input data is zero or nonzero, write the bitmap to the output,
+// and then run regular float compression. This header is placed before the
+// bitmap and lets us calculate where the bitmap ends, so that we can find
+// the start of the float compressed data.
+//
+// Note that the "size" field of the GpuFloatHeader is the number of nonzeros
+// in the dataset, whereas this "size" field is the total number of floats
+// (zeros and nonzeros).
 struct __align__(16) GpuSparseFloatHeader {
   __host__ __device__ uint32_t getSize() const {
     return size;
@@ -101,7 +116,9 @@ struct __align__(16) GpuSparseFloatHeader {
   // Number of floating point words of the given float type in the archive
   uint32_t size;
 
-  // For 16-byte alignment purposes;
+  // For 16-byte alignment purposes, we need to have these extra fields.
+  // Otherwise, the size of this struct will not be 16 bytes and the section
+  // of memory directly after it will not be 16-byte aligned.
   uint32_t unusedOne;
   uint64_t unusedTwo;
 };
@@ -110,7 +127,9 @@ static_assert(sizeof(GpuFloatHeader) == 16, "");
 static_assert(sizeof(GpuFloatHeader2) == 16, "");
 static_assert(sizeof(GpuSparseFloatHeader) == 16, "");
 
-
+// Different vector datatypes for vectorized operations, i.e., operations
+// that read full 16-byte blocks of memory at a time. Vectorized operations
+// are an efficient way to access GPU memory.
 struct __align__(16) uint64x2 {
   uint64_t x[2];
 };
@@ -322,6 +341,8 @@ struct FloatTypeInfo<FloatType::kFloat64> {
 
   static __device__ void split(WordT in, CompT* comp, NonCompT& nonComp) {
     uint64_t v = rotateLeft(in, 1);
+    // For Float64, there are two rounds of ANS compression because the exponent
+    // is longer than one byte. So, we store the compressed part as an array.
     comp[0] = v >> 56;
     comp[1] = (v >> 48) & 0xffU;
 
@@ -333,12 +354,6 @@ struct FloatTypeInfo<FloatType::kFloat64> {
                   uint64_t(nonComp);
     return rotateRight(v, 1);
   }
-
-  // static __device__ uint64_t join(const uint8_t* comp, uint64_t nonComp) {
-  //   uint64_t v = (uint64_t(comp[0]) * 72057594037927936U) + (uint64_t(comp[1]) * 281474976710656U) + 
-  //                 uint64_t(nonComp);
-  //   return rotateRight(v, 1);
-  // }
 
   static __device__ NonCompVecT mulV(const CompVecT comp, const uint64_t intVal) {
     uint64x2 v;
@@ -390,12 +405,14 @@ inline size_t getWordSizeFromFloatType(FloatType ft) {
   }
 }
 
+// Print out an array of integers or longs stored in GPU memory.
 template<typename T>
-__global__ void printarr(T *idxs, int count) {
-    if (blockIdx.x == 0 && threadIdx.x == 0) {
+__global__ void printarr(T *arr, int count) {
+    // Only the master thread should print anything out
+    if (blockIdx.y == 0 && blockIdx.x == 0 && threadIdx.x == 0) {
         for (uint32_t i = 0; i < count; ++i) {
-            printf("%lu\t", idxs[i]);
-            if (i % 10 == 9)
+            printf("%lu\t", arr[i]);
+            if (i % 10 == 9) // line breaks every 10 elements
                 printf("\n");
         }
         printf("\n");

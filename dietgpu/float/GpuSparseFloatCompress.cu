@@ -14,33 +14,21 @@
 namespace dietgpu {
 
 uint32_t getMaxSparseFloatCompressedSize(FloatType floatType, uint32_t size) {
-  // kNotCompressed bytes per float are simply stored uncompressed
-  // rounded up to 16 bytes to ensure alignment of the following ANS data
-  // portion
-  uint32_t baseSize = sizeof(GpuFloatHeader) + sizeof(GpuFloatHeader2) + 
-    sizeof(GpuSparseFloatHeader) + getMaxCompressedSize(size) + roundUp(size, 16);
+  // The maximum number of compressed bytes (in the worst case of 100% dense data)
+  // is the value output getMaxFloatCompressedSize, plus the number of bytes needed
+  // to store the bitmap and the sparse float header.
+  uint32_t bitmapSize = roundUp((size + 7) / 8, 16);
+  uint32_t baseSize = sizeof(GpuSparseFloatHeader);
 
-  switch (floatType) {
-    case FloatType::kFloat16:
-      baseSize += FloatTypeInfo<FloatType::kFloat16>::getUncompDataSize(size);
-      break;
-    case FloatType::kBFloat16:
-      baseSize += FloatTypeInfo<FloatType::kBFloat16>::getUncompDataSize(size);
-      break;
-    case FloatType::kFloat32:
-      baseSize += FloatTypeInfo<FloatType::kFloat32>::getUncompDataSize(size);
-      break;
-    case FloatType::kFloat64:
-      baseSize += FloatTypeInfo<FloatType::kFloat64>::getUncompDataSize(size) + getMaxCompressedSize(size);
-      break;
-    default:
-      CHECK(false);
-      break;
-  }
-
-  return baseSize;
+  return baseSize + bitmapSize + getMaxFloatCompressedSize(floatType, size);
 }
 
+/* Performs compression on sparse floats. This has the same API as floatCompress,
+ * but uses a specialized algorithm for compressing sparse floats: first, it
+ * generates a bitmap describing whether each element of the input dataset is
+ * zero or nonzero. Then, it performs regular float compression, only on the
+ * nonzero elements.
+ */
 void floatCompressSparse(
     StackDeviceMemory& res,
     const FloatCompressConfig& config,

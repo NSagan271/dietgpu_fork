@@ -171,6 +171,11 @@ void floatCompressSplitSize(
     // stream on the current device on which this runs
     cudaStream_t stream);
 
+// All arguments are the same as floatCompress; see the comments on floatCompress
+// above for more details.
+//
+// This is a specialized float compression for sparse floating point data, i.e.,
+// where a decent percent of the data is exactly zero.
 void floatCompressSparse(
     StackDeviceMemory& res,
     const FloatCompressConfig& config,
@@ -257,6 +262,8 @@ FloatDecompressStatus floatDecompressSplitSize(
     // stream on the current device on which this runs
     cudaStream_t stream);
 
+// All arguments are the same as floatDeompress; see the comments on floatDecompress
+// above for more details.
 FloatDecompressStatus floatDecompressSparse(
     StackDeviceMemory& res,
     const FloatDecompressConfig& config,
