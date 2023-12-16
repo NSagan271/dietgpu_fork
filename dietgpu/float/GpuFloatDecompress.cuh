@@ -76,8 +76,6 @@ struct JoinFloatNonAligned<FloatType::kFloat32, Threads> {
 
       // Dataset of non-compressed float sections
       const typename FloatTypeInfo<
-          FloatType::kFloat32>::CompT* __restrict__ compInUnused,
-      const typename FloatTypeInfo<
           FloatType::kFloat32>::NonCompT* __restrict__ nonCompIn,
 
       // Number of floats
@@ -126,7 +124,7 @@ struct JoinFloatNonAligned<FloatType::kFloat64, Threads> {
       // Number of floats
       uint32_t size,
 
-      // Where we erite the output floats
+      // Where we write the output floats
       typename FloatTypeInfo<FloatType::kFloat64>::WordT* __restrict__ out) {
     using FTI = FloatTypeInfo<FloatType::kFloat64>;
     using CompT = typename FTI::CompT;
@@ -268,8 +266,6 @@ struct JoinFloatAligned16<FloatType::kFloat32, Threads> {
 
       // Dataset of non-compressed float sections
       const typename FloatTypeInfo<
-          FloatType::kFloat32>::CompT* __restrict__ compInUnused,
-      const typename FloatTypeInfo<
           FloatType::kFloat32>::NonCompT* __restrict__ nonCompIn,
 
       // Number of floats
@@ -372,7 +368,7 @@ struct JoinFloatAligned16<FloatType::kFloat32, Threads> {
 };
 
 
-// Float32 specialization for vectorized float joining
+// Float64 specialization for vectorized float joining
 template <int Threads>
 struct JoinFloatAligned16<FloatType::kFloat64, Threads> {
   static __device__ void join(
