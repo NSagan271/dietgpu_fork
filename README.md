@@ -1,4 +1,28 @@
+# DietGPU Extensions: Float64 and Sparse Float Compression
+Final Project for Stanford's EE 274 Data Compression course.
+
+Contributors: Mingfei Guo (mfguo@stanford.edu), Naomi Sagan (nsagan@stanford.edu)
+
+## Summary of Contributions
+We implemented Float64 compression, as an extension to the existing Float32 compression codec.
+As described below in the original DietGPU README, float compression involves ANS ecoding the exponents of a floating point dataset (as the significands have extremely high entropy, making them uncompressible).
+Unlike Float32, Float64 requires two rounds of ANS compression, as its exponent has more than one byte.
+
+We also implemented an algorithm for sparse float compression.
+In short, it computes a bitmap representation of which indices of the original floating point data are nonzero, uses an exclusive scan operation to obtain the indices of the nonzero elements of the data, and performs float compression on a dataset consisting only of the nonzeros.
+
+More information can be found here:
+- **Final Report**: [link](https://www.overleaf.com/read/fqnsdscbpmbm#3d8888)
+- **Presentation**: [link](https://www.overleaf.com/read/vdrnfrrncqth#c21ab7)
+
+## Code Setup And Testing
+1. Building the code: see the **Building** section below
+2. Benchmarking: from the `build` folder, you can run `./bin/float_benchmark benchmarkFilename.txt` and `./bin/sparse_float_benchmark benchmarkFilename.txt` to benchmark base and sparse float compression, respectively.
+These scripts also test for correctness.
+The results in the report linked above are for an NVIDIA TitanX GPU.
+
 # DietGPU: GPU-based lossless compression for numerical data
+**The following is the original README for the DietGPU repository**.
 
 Author: Jeff Johnson (@wickedfoo), `jhj _at_ fb.com`
 
@@ -98,8 +122,6 @@ Performance depends upon many factors, including entropy of the input data (high
 
 ## Planned extensions
 
-- float32 support, possibly float64 support
-- compression options to expect semi-sparse floating point data for higher compression (>10% zero values)
 - a fused kernel implementation (likely using CUDA cooperative groups) to support single-kernel compression and decompression minimizing temporary memory usage
 - a fused kernel implementation using the above to support persistent NCCL-like all-reduce for collective communications libraries
 - CUB-like APIs for fusing warp-oriented ANS compression and decompression into arbitrary user kernels
